@@ -1,0 +1,59 @@
+# 故障模式知识库索引
+
+生成时间: 2026-02-28T23:01:53.568257
+总计: 4 个故障模式
+
+## DATABASE
+
+数量: 0
+
+
+## MEMORY
+
+数量: 1
+
+- [FP-MEMORY-20250225-001](memory/FP-MEMORY-20250225-001.md)
+
+## WEB
+
+数量: 0
+
+
+## NETWORK
+
+数量: 2
+
+- [FP-NETWORK-20250225-001](network/FP-NETWORK-20250225-001.md)
+- [FP-NETWORK-20250225-002](network/FP-NETWORK-20250225-002.md)
+
+## NETWORK_SECURITY
+
+数量: 0
+
+
+## STORAGE
+
+数量: 1
+
+- [FP-STORAGE-20250225-001](storage/FP-STORAGE-20250225-001.md)
+
+## COMPUTE
+
+数量: 0
+
+
+## CHAOS_ENGINEERING
+
+数量: 0
+
+
+## OS
+
+数量: 0
+
+
+## VENV
+
+数量: 0
+
+

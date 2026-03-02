@@ -1,0 +1,9 @@
+Flask==3.0.0
+Werkzeug==3.0.1
+markdown==3.5.1
+PyYAML==6.0.1
+python-frontmatter==1.0.0
+Flask-Caching==2.1.0
+Pygments==2.16.1
+python-dotenv==1.0.0
+gunicorn==21.2.0

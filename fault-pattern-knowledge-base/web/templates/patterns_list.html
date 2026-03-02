@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}所有故障模式 - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>所有故障模式</h1>
+    <p class="page-header-meta">共 {{ patterns|length }} 个故障模式</p>
+</div>
+
+{% if patterns %}
+<div class="pattern-list">
+    {% for pattern in patterns %}
+    <a href="{{ url_for('patterns.pattern_detail', fault_id=pattern.fault_id) }}" class="pattern-card">
+        <div class="pattern-card-header">
+            <h3 class="pattern-card-title">{{ pattern.name }}</h3>
+            <span class="badge badge-{{ pattern.severity|lower }}">{{ pattern.severity }}</span>
+        </div>
+        <p class="pattern-card-description">{{ pattern.description }}</p>
+        <div class="pattern-card-meta">
+            <span class="pattern-id">{{ pattern.fault_id }}</span>
+            <span class="pattern-category">{{ pattern.category }}</span>
+            <span class="pattern-date">{{ pattern.updated }}</span>
+            {% if pattern.tags %}
+            <div class="pattern-tags">
+                {% for tag in pattern.tags[:3] %}
+                <span class="tag">{{ tag }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <p>暂无故障模式</p>
+</div>
+{% endif %}
+{% endblock %}

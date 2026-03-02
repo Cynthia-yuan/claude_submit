@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod:*)",
+      "Bash(python3:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(FLASK_APP=web/app.py python3 -c:*)",
+      "Bash(FLASK_APP=web/app.py python3 -m flask run:*)",
+      "Bash(curl:*)",
+      "Bash(git init:*)"
+    ]
+  }
+}

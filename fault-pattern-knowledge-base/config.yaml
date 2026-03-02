@@ -1,0 +1,19 @@
+app:
+  name: "Linux故障模式知识库"
+  debug: true
+  secret_key: "dev-secret-key-change-in-production"
+
+paths:
+  base_path: "."
+  index_file: "INDEX.md"
+
+features:
+  enable_search: true
+  enable_cache: true
+
+cache:
+  timeout: 300  # 5分钟
+
+server:
+  host: "0.0.0.0"
+  port: 5000

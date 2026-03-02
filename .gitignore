@@ -1,0 +1,29 @@
+# Claude Code specific
+.claude/cache/
+.claude/debug/
+.claude/file-history/
+.claude/session-env/
+.claude/shell-snapshots/
+.claude/stats-cache.json
+.claude/telemetry/
+.claude/todos
+
+# Node modules (if any)
+node_modules/
+package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+*.key
+*.pem

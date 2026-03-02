@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}搜索{% if query %}: {{ query }}{% endif %} - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="search-page">
+    <!-- 搜索框 -->
+    <div class="search-header">
+        <form action="{{ url_for('main.search') }}" method="get" class="search-form-large">
+            <input type="text" name="q" value="{{ query }}" placeholder="搜索故障模式..." class="search-input-large" autofocus>
+            <button type="submit" class="search-button-large">搜索</button>
+        </form>
+    </div>
+
+    <!-- 过滤器 -->
+    <div class="search-filters">
+        <div class="filter-group">
+            <label>分类:</label>
+            <select name="category" onchange="this.form.submit()">
+                <option value="">全部分类</option>
+                {% for cat in categories %}
+                <option value="{{ cat.name }}" {% if filters.category == cat.name %}selected{% endif %}>
+                    {{ cat.display_name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>严重程度:</label>
+            <select name="severity" onchange="this.form.submit()">
+                <option value="">全部</option>
+                <option value="S1" {% if filters.severity == 'S1' %}selected{% endif %}>S1 - 致命</option>
+                <option value="S2" {% if filters.severity == 'S2' %}selected{% endif %}>S2 - 严重</option>
+                <option value="S3" {% if filters.severity == 'S3' %}selected{% endif %}>S3 - 中等</option>
+                <option value="S4" {% if filters.severity == 'S4' %}selected{% endif %}>S4 - 轻微</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- 搜索结果 -->
+    {% if query %}
+    <div class="search-results">
+        <p class="search-results-info">找到 {{ results|length }} 个结果</p>
+
+        {% if results %}
+        <div class="pattern-list">
+            {% for pattern in results %}
+            <a href="{{ url_for('patterns.pattern_detail', fault_id=pattern.fault_id) }}" class="pattern-card">
+                <div class="pattern-card-header">
+                    <h3 class="pattern-card-title">{{ pattern.name }}</h3>
+                    <span class="badge badge-{{ pattern.severity|lower }}">{{ pattern.severity }}</span>
+                </div>
+                <p class="pattern-card-description">{{ pattern.description }}</p>
+                <div class="pattern-card-meta">
+                    <span class="pattern-id">{{ pattern.fault_id }}</span>
+                    <span class="pattern-category">{{ pattern.category }}</span>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <p>未找到匹配的故障模式</p>
+            <p class="empty-state-hint">尝试使用不同的关键词或减少过滤条件</p>
+        </div>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="search-placeholder">
+        <p>请输入搜索关键词</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}{{ app_name }} - 首页{% endblock %}
+
+{% block content %}
+<div class="hero-section">
+    <h1 class="hero-title">{{ app_name }}</h1>
+    <p class="hero-subtitle">系统化的Linux故障模式知识沉淀，助力混沌工程测试</p>
+</div>
+
+<!-- 统计信息 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ statistics.total_patterns }}</div>
+        <div class="stat-label">故障模式总数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ statistics.total_categories }}</div>
+        <div class="stat-label">分类数量</div>
+    </div>
+    {% if statistics.last_updated %}
+    <div class="stat-card">
+        <div class="stat-value">{{ statistics.last_updated }}</div>
+        <div class="stat-label">最后更新</div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 分类概览 -->
+<h2 class="section-title">故障分类</h2>
+<div class="category-grid">
+    {% for cat in categories %}
+    <a href="{{ url_for('main.category', category_name=cat.name) }}" class="category-card">
+        <div class="category-card-icon">
+            {% if cat.name == 'network' %}🌐{% elif cat.name == 'storage' %}💾{% elif cat.name == 'memory' %}🧠{% elif cat.name == 'compute' %}⚙️{% elif cat.name == 'database' %}🗄️{% elif cat.name == 'os' %}🖥️{% else %}📋{% endif %}
+        </div>
+        <div class="category-card-name">{{ cat.display_name }}</div>
+        <div class="category-card-count">{{ cat.count }} 个故障模式</div>
+    </a>
+    {% endfor %}
+</div>
+
+<!-- 最近更新 -->
+{% if recent_updates %}
+<h2 class="section-title">最近更新</h2>
+<div class="recent-list">
+    {% for pattern in recent_updates %}
+    <a href="{{ url_for('patterns.pattern_detail', fault_id=pattern.fault_id) }}" class="recent-item">
+        <div class="recent-item-title">{{ pattern.name }}</div>
+        <div class="recent-item-meta">
+            <span class="badge badge-{{ pattern.severity|lower }}">{{ pattern.severity }}</span>
+            <span class="recent-item-category">{{ pattern.category }}</span>
+            <span class="recent-item-date">{{ pattern.updated }}</span>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- 严重程度分布 -->
+{% if statistics.severity_distribution %}
+<h2 class="section-title">严重程度分布</h2>
+<div class="severity-chart">
+    {% for severity, count in statistics.severity_distribution.items() %}
+    <div class="severity-bar">
+        <div class="severity-label">{{ severity }}</div>
+        <div class="severity-bar-fill" style="width: {{ (count / statistics.total_patterns * 100)|round }}%">
+            <span class="severity-count">{{ count }}</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

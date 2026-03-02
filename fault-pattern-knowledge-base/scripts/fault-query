@@ -1,0 +1,320 @@
+#!/bin/bash
+# 故障模式查询和注入工具
+# 用于快速查询故障模式和执行故障注入
+
+set -e
+
+# 配置
+KNOWLEDGE_BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAGER="${PAGER:-less}"
+
+# 颜色
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# 打印帮助
+print_help() {
+    cat << EOF
+${BOLD}故障模式查询和注入工具${NC}
+
+${GREEN}用法:${NC}
+    $(basename "$0") <command> [options]
+
+${GREEN}命令:${NC}
+    ${BOLD}list${NC}                    列出所有故障模式
+    ${BOLD}search${NC} <keyword>        搜索故障模式
+    ${BOLD}show${NC} <fault_id>         显示故障模式详情
+    ${BOLD}inject${NC} <fault_id>       执行故障注入
+    ${BOLD}tools${NC} [category]        显示故障注入工具
+
+${GREEN}选项:${NC}
+    -h, --help                 显示此帮助
+    -v, --verbose              详细输出
+
+${GREEN}示例:${NC}
+    # 列出所有网络故障
+    $(basename "$0") list network
+
+    # 搜索包含"延迟"的故障
+    $(basename "$0") search 延迟
+
+    # 查看网络高延迟故障详情
+    $(basename "$0") show FP-NETWORK-20250225-001
+
+    # 注入网络延迟（需要root权限）
+    sudo $(basename "$0") inject FP-NETWORK-20250225-001
+
+    # 显示网络故障注入工具
+    $(basename "$0") tools network
+
+EOF
+}
+
+# 列出故障模式
+list_faults() {
+    local category="${1:-}"
+    local index_file="$KNOWLEDGE_BASE_DIR/INDEX.md"
+
+    if [ ! -f "$index_file" ]; then
+        echo -e "${RED}错误: 索引文件不存在，请先运行: python3 templates/fault_pattern_manager.py --index${NC}"
+        return 1
+    fi
+
+    echo -e "${BOLD}故障模式列表${NC}"
+    echo "=================="
+    echo ""
+
+    if [ -n "$category" ]; then
+        # 列出指定类别
+        local upper_category=$(echo "$category" | tr '[:lower:]' '[:upper:]')
+        echo -e "${CYAN}类别: $upper_category${NC}"
+        echo ""
+
+        grep -A 100 "^## $upper_category" "$index_file" | grep '^-' | sed 's/^- //' | sed 's/](/](..\/..\//' || true
+    else
+        # 列出所有类别
+        grep '^## ' "$index_file" | while read -r line; do
+            local cat_name=$(echo "$line" | sed 's/^## //')
+            echo -e "${CYAN}$cat_name${NC}"
+            grep -A 100 "$line" "$index_file" | grep '^-' | head -5 | sed 's/^-/  /' | sed 's/](/](..\/..\//' || true
+            echo ""
+        done
+    fi
+}
+
+# 搜索故障模式
+search_faults() {
+    local keyword="$1"
+    local count=0
+
+    echo -e "${BOLD}搜索: ${GREEN}$keyword${NC}${BOLD}${NC}"
+    echo "=================="
+    echo ""
+
+    for md_file in "$KNOWLEDGE_BASE_DIR"/*/*.md; do
+        if [ -f "$md_file" ]; then
+            if grep -qi "$keyword" "$md_file"; then
+                local filename=$(basename "$md_file")
+                local category=$(basename "$(dirname "$md_file")")
+                local name=$(grep '^name:' "$md_file" | head -1 | cut -d'"' -f2)
+
+                echo -e "${CYAN}[$filename]($md_file)${NC}"
+                echo "  类别: $category"
+                if [ -n "$name" ]; then
+                    echo "  名称: $name"
+                fi
+
+                # 显示匹配的行
+                local matches=$(grep -i -C 1 "$keyword" "$md_file" | head -5)
+                if [ -n "$matches" ]; then
+                    echo "  匹配:"
+                    echo "$matches" | sed 's/^/    /' | head -3
+                fi
+                echo ""
+                count=$((count + 1))
+            fi
+        fi
+    done
+
+    if [ $count -eq 0 ]; then
+        echo -e "${YELLOW}未找到包含 '${keyword}' 的故障模式${NC}"
+    else
+        echo -e "${GREEN}找到 ${count} 个匹配项${NC}"
+    fi
+}
+
+# 显示故障模式详情
+show_fault() {
+    local fault_id="$1"
+
+    if [ -z "$fault_id" ]; then
+        echo -e "${RED}错误: 请提供故障ID${NC}"
+        return 1
+    fi
+
+    # 查找文件
+    local fault_file=$(find "$KNOWLEDGE_BASE_DIR" -name "${fault_id}.md" -type f 2>/dev/null | head -1)
+
+    if [ -z "$fault_file" ]; then
+        echo -e "${RED}错误: 未找到故障模式 '$fault_id'${NC}"
+        echo ""
+        echo "可用的故障模式:"
+        list_faults | grep -E '^\-.*FP-' | head -10
+        return 1
+    fi
+
+    echo -e "${BOLD}故障模式详情${NC}"
+    echo "=============="
+    echo ""
+    echo -e "${CYAN}文件: $fault_file${NC}"
+    echo ""
+
+    # 显示内容
+    if command -v bat &> /dev/null; then
+        bat --paging=always --style=plain "$fault_file"
+    else
+        $PAGER "$fault_file"
+    fi
+}
+
+# 执行故障注入
+inject_fault() {
+    local fault_id="$1"
+
+    if [ -z "$fault_id" ]; then
+        echo -e "${RED}错误: 请提供故障ID${NC}"
+        return 1
+    fi
+
+    # 检查root权限
+    if [ "$EUID" -ne 0 ]; then
+        echo -e "${RED}错误: 故障注入需要 root 权限${NC}"
+        echo "请使用: sudo $0 inject $fault_id"
+        return 1
+    fi
+
+    # 查找文件
+    local fault_file=$(find "$KNOWLEDGE_BASE_DIR" -name "${fault_id}.md" -type f 2>/dev/null | head -1)
+
+    if [ -z "$fault_file" ]; then
+        echo -e "${RED}错误: 未找到故障模式 '$fault_id'${NC}"
+        return 1
+    fi
+
+    echo -e "${YELLOW}⚠️  警告: 即将执行故障注入！${NC}"
+    echo ""
+    echo -e "${BOLD}故障模式: ${CYAN}$fault_id${NC}"
+    echo -e "${BOLD}文件: ${CYAN}$fault_file${NC}"
+    echo ""
+    echo -e "${RED}请确保:${NC}"
+    echo "  1. 这是在测试环境执行"
+    echo "  2. 已保存当前工作"
+    echo "  3. 了解故障的影响范围"
+    echo "  4. 有回滚方案"
+    echo ""
+
+    read -p "是否继续? (yes/no): " confirm
+
+    if [ "$confirm" != "yes" ]; then
+        echo "已取消"
+        return 0
+    fi
+
+    echo ""
+    echo -e "${GREEN}提取故障注入命令...${NC}"
+    echo ""
+
+    # 提取故障注入部分的bash代码块
+    awk '/## 故障注入/,/## 验证方法/ {
+        if (/```bash/) { in_bash=1; next }
+        if (/```/ && in_bash) { in_bash=0; next }
+        if (in_bash) print
+    }' "$fault_file" > /tmp/fault_inject.sh
+
+    if [ ! -s /tmp/fault_inject.sh ]; then
+        echo -e "${YELLOW}未找到故障注入脚本，显示注入方法:${NC}"
+        echo ""
+        awk '/## 故障注入/,/## 验证方法/' "$fault_file" | head -30
+    else
+        echo -e "${BOLD}执行注入脚本:${NC}"
+        echo "===================="
+        echo ""
+        cat /tmp/fault_inject.sh
+        echo ""
+        echo "===================="
+        echo ""
+
+        read -p "执行上述命令? (yes/no): " exec_confirm
+
+        if [ "$exec_confirm" = "yes" ]; then
+            echo -e "${GREEN}执行中...${NC}"
+            bash /tmp/fault_inject.sh
+            echo -e "${GREEN}✓ 故障已注入${NC}"
+            echo ""
+            echo -e "${YELLOW}提示: 使用以下命令清理故障:${NC}"
+            echo "  sudo tc qdisc del dev <device> root"
+            echo "  或查看故障模式文档中的清理命令"
+        else
+            echo "已取消"
+        fi
+    fi
+
+    rm -f /tmp/fault_inject.sh
+}
+
+# 显示故障注入工具
+show_tools() {
+    local category="${1:-}"
+    local tools_file="$KNOWLEDGE_BASE_DIR/tools/fault_injection_tools.md"
+
+    if [ ! -f "$tools_file" ]; then
+        echo -e "${RED}错误: 工具文档不存在${NC}"
+        return 1
+    fi
+
+    echo -e "${BOLD}故障注入工具${NC}"
+    echo "=============="
+    echo ""
+
+    if [ -n "$category" ]; then
+        # 显示特定类别的工具
+        echo -e "${CYAN}类别: $category${NC}"
+        echo ""
+
+        awk "/## ${category}/,/^## /" "$tools_file" | grep -v "^## $" | head -50
+    else
+        # 显示所有工具类别
+        grep '^## ' "$tools_file" | sed 's/^## /  /'
+        echo ""
+        echo -e "${YELLOW}使用 '$(basename "$0") tools <category>' 查看详细内容${NC}"
+    fi
+}
+
+# 主函数
+main() {
+    if [ $# -eq 0 ]; then
+        print_help
+        exit 0
+    fi
+
+    local command="$1"
+    shift
+
+    case "$command" in
+        help|--help|-h)
+            print_help
+            ;;
+        list|ls)
+            list_faults "$@"
+            ;;
+        search|s)
+            if [ $# -eq 0 ]; then
+                echo -e "${RED}错误: 请提供搜索关键词${NC}"
+                exit 1
+            fi
+            search_faults "$@"
+            ;;
+        show|info)
+            show_fault "$@"
+            ;;
+        inject)
+            inject_fault "$@"
+            ;;
+        tools)
+            show_tools "$@"
+            ;;
+        *)
+            echo -e "${RED}错误: 未知命令 '$command'${NC}"
+            echo ""
+            print_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}{{ pattern.name }} - {{ app_name }}{% endblock %}
+
+{% block content %}
+<!-- 故障模式头部 -->
+<div class="pattern-header">
+    <div class="pattern-header-meta">
+        <span class="badge badge-{{ pattern.severity|lower }}">{{ pattern.severity }}</span>
+        <span class="pattern-category">{{ pattern.category|upper }}</span>
+        <span class="pattern-id">{{ pattern.fault_id }}</span>
+    </div>
+    <h1>{{ pattern.name }}</h1>
+    <p class="pattern-description">{{ pattern.description }}</p>
+
+    {% if pattern.tags %}
+    <div class="pattern-tags">
+        {% for tag in pattern.tags %}
+        <span class="tag">{{ tag }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- 故障注入脚本 -->
+{% if pattern.injection_scripts %}
+<section class="pattern-section injection-section">
+    <div class="injection-warning">
+        <strong>⚠️ 警告：以下脚本仅用于测试环境！</strong>
+        <p>在生产环境执行前，请务必充分验证并准备好回滚方案。</p>
+    </div>
+
+    <h2>故障注入脚本</h2>
+
+    {% for script in pattern.injection_scripts %}
+    <div class="script-block">
+        <div class="script-header">
+            <span class="script-title">{{ script.title }}</span>
+            <div class="script-actions">
+                <button class="btn-copy" onclick="copyToClipboard(this)">复制</button>
+                <a href="{{ url_for('patterns.download_script', fault_id=pattern.fault_id) }}" class="btn-download">下载 .sh</a>
+            </div>
+        </div>
+        <pre><code class="language-bash">{{ script.code }}</code></pre>
+    </div>
+    {% endfor %}
+
+    <div class="execution-guide">
+        <h3>执行方式</h3>
+        <p><strong>方式1：使用CLI工具</strong></p>
+        <pre><code class="language-bash">sudo {{ config.base_path }}/scripts/fault-query inject {{ pattern.fault_id }}</code></pre>
+
+        <p><strong>方式2：手动执行</strong></p>
+        <ol>
+            <li>复制上方脚本或下载.sh文件</li>
+            <li>根据实际环境修改网络接口等参数</li>
+            <li>在测试环境执行：<code class="inline-code">bash script.sh</code></li>
+            <li>执行后使用验证命令确认故障已注入</li>
+        </ol>
+    </div>
+</section>
+{% endif %}
+
+<!-- 故障详情内容 -->
+<section class="pattern-section">
+    <h2>详细信息</h2>
+    <div class="pattern-content">
+        {{ pattern.html|safe }}
+    </div>
+</section>
+
+<!-- 相关故障模式 -->
+{% if related_patterns %}
+<section class="pattern-section">
+    <h2>相关故障模式</h2>
+    <div class="related-patterns">
+        {% for related in related_patterns %}
+        <a href="{{ url_for('patterns.pattern_detail', fault_id=related.fault_id) }}" class="related-pattern-card">
+            <span class="related-pattern-id">{{ related.fault_id }}</span>
+            <span class="related-pattern-name">{{ related.name }}</span>
+            <span class="badge badge-{{ related.severity|lower }}">{{ related.severity }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+<!-- 元数据表格 -->
+<section class="pattern-section">
+    <h2>元数据</h2>
+    <table class="metadata-table">
+        <tr>
+            <th>故障ID</th>
+            <td>{{ pattern.fault_id }}</td>
+        </tr>
+        <tr>
+            <th>分类</th>
+            <td>{{ pattern.category }}</td>
+        </tr>
+        <tr>
+            <th>严重程度</th>
+            <td>{{ pattern.severity }}</td>
+        </tr>
+        <tr>
+            <th>发生频率</th>
+            <td>{{ pattern.frequency }}</td>
+        </tr>
+        <tr>
+            <th>创建日期</th>
+            <td>{{ pattern.created }}</td>
+        </tr>
+        <tr>
+            <th>更新日期</th>
+            <td>{{ pattern.updated }}</td>
+        </tr>
+    </table>
+</section>
+{% endblock %}
