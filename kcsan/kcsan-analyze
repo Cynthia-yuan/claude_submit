@@ -365,6 +365,15 @@ def cmd_analyze(args):
                 if not sources:  # If not already fetched for variable resolution
                     sources = src_viewer.get_race_sources(race, context_lines=args.context_lines)
 
+                # Show diagnostic information if requested
+                if args.diagnose:
+                    print(f"  {Colors.BOLD}{Colors.YELLOW}Source Code Resolution Diagnostics{Colors.RESET}")
+                    debug_info = src_viewer.get_race_sources_debug(race)
+                    print(f"    {Colors.WHITE}Access 1:{Colors.RESET} {debug_info.get('access1', 'N/A')}")
+                    print(f"    {Colors.WHITE}Access 2:{Colors.RESET} {debug_info.get('access2', 'N/A')}")
+                    print(f"    {Colors.WHITE}Kernel Source:{Colors.RESET} {src_viewer.kernel_src}")
+                    print()
+
             # Show variable info if resolved
             if var_resolver and sources:
                 var_info = var_resolver.resolve_race_variable(race, sources)
