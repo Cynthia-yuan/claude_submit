@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+"""
+KCSAN Report Analyzer - Command Line Tool
+A tool to analyze KCSAN (Kernel Concurrency Sanitizer) reports.
+"""
+
+import sys
+import argparse
+from pathlib import Path
+from typing import Optional
+
+# Add current directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+from kcsan_analyzer import (
+    KCSANParser,
+    KCSANAnalyzer,
+    KCSANStatistics,
+    SourceCodeViewer,
+    analyze_text
+)
+
+
+class Colors:
+    """ANSI color codes for terminal output"""
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    RESET = '\033[0m'
+
+    @classmethod
+    def disable(cls):
+        """Disable colors"""
+        cls.RED = ''
+        cls.GREEN = ''
+        cls.YELLOW = ''
+        cls.BLUE = ''
+        cls.MAGENTA = ''
+        cls.CYAN = ''
+        cls.WHITE = ''
+        cls.BOLD = ''
+        cls.RESET = ''
+
+
+def print_header(text: str):
+    """Print a formatted header"""
+    print(f"\n{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.CYAN}{text:^60}{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.CYAN}{'=' * 60}{Colors.RESET}\n")
+
+
+def print_race_summary(race, index: int, analysis: dict):
+    """Print summary of a data race"""
+    severity_color = {
+        'HIGH': Colors.RED,
+        'MEDIUM': Colors.YELLOW,
+        'LOW': Colors.GREEN
+    }.get(analysis['severity'], Colors.WHITE)
+
+    print(f"{Colors.BOLD}[{index + 1}] {Colors.CYAN}Data Race Detected{Colors.RESET}")
+    print(f"    {Colors.WHITE}Type:{Colors.RESET} {race.race_type}")
+    print(f"    {Colors.WHITE}Severity:{Colors.RESET} {severity_color}{analysis['severity']}{Colors.RESET}")
+    print(f"    {Colors.WHITE}Pattern:{Colors.RESET} {analysis['race_pattern']}")
+
+    if race.function_name:
+        print(f"    {Colors.WHITE}Function:{Colors.RESET} {race.function_name}")
+
+    if race.file_location:
+        print(f"    {Colors.WHITE}Location:{Colors.RESET} {Colors.CYAN}{race.file_location}{Colors.RESET}")
+
+    if race.value_change:
+        print(f"    {Colors.WHITE}Value Changed:{Colors.RESET} {Colors.YELLOW}{race.value_change}{Colors.RESET}")
+
+    print()
+
+
+def print_access_details(access, label: str):
+    """Print details of a race access"""
+    access_color = Colors.RED if access.access_type == 'write' else Colors.GREEN
+    print(f"    {Colors.WHITE}{label}:{Colors.RESET} {access_color}{access.access_type.upper()}{Colors.RESET}")
+    print(f"      {Colors.WHITE}Address:{Colors.RESET} {access.address}")
+    print(f"      {Colors.WHITE}Size:{Colors.RESET} {access.size} bytes")
+    print(f"      {Colors.WHITE}Task/CPU:{Colors.RESET} {access.task_info}/{access.cpu}")
+
+    if access.stack_trace:
+        print(f"      {Colors.WHITE}Stack Trace:{Colors.RESET}")
+        for i, frame in enumerate(access.stack_trace[:5]):  # Show top 5 frames
+            print(f"        {Colors.MAGENTA}{i+1}.{Colors.RESET} {frame}")
+        if len(access.stack_trace) > 5:
+            print(f"        ... and {len(access.stack_trace) - 5} more frames")
+    print()
+
+
+def print_analysis(analysis: dict):
+    """Print analysis and suggestions"""
+    print(f"  {Colors.BOLD}{Colors.BLUE}Analysis{Colors.RESET}")
+    print(f"    {Colors.WHITE}Cause:{Colors.RESET} {analysis['likely_cause']}")
+    print()
+
+    print(f"  {Colors.BOLD}{Colors.BLUE}Fix Suggestions{Colors.RESET}")
+    for i, suggestion in enumerate(analysis['fix_suggestions'], 1):
+        print(f"    {Colors.GREEN}{i}.{Colors.RESET} {suggestion}")
+    print()
+
+
+def print_source_code(sources: dict, access_label: str):
+    """Print source code context"""
+    source_info = sources.get(access_label)
+    if not source_info:
+        print(f"  {Colors.YELLOW}(Source code not available){Colors.RESET}\n")
+        return
+
+    print(f"  {Colors.WHITE}File:{Colors.RESET} {Colors.CYAN}{source_info['relative_path']}{Colors.RESET}")
+    print(f"  {Colors.WHITE}Line:{Colors.RESET} {source_info['line']}")
+    print(f"  {Colors.WHITE}Full Path:{Colors.RESET} {source_info['file']}")
+    print()
+    print(f"  {Colors.BOLD}{Colors.BLUE}Source Code:{Colors.RESET}")
+
+    for line in source_info['context']:
+        if '>>>' in line:
+            # Highlight the target line
+            print(f"  {Colors.RED}{line}{Colors.RESET}")
+        else:
+            print(f"  {line}")
+    print()
+
+
+def print_statistics(stats: dict):
+    """Print statistics"""
+    print(f"{Colors.BOLD}{Colors.CYAN}KCSAN Statistics{Colors.RESET}\n")
+
+    print(f"  {Colors.WHITE}Total Races:{Colors.RESET} {stats.get('total_races', 0)}")
+    print()
+
+    if stats.get('by_severity'):
+        print(f"  {Colors.BOLD}By Severity:{Colors.RESET}")
+        for severity, count in stats['by_severity'].items():
+            color = { 'HIGH': Colors.RED, 'MEDIUM': Colors.YELLOW, 'LOW': Colors.GREEN }.get(severity, '')
+            print(f"    {color}{severity}:{Colors.RESET} {count}")
+        print()
+
+    if stats.get('by_type'):
+        print(f"  {Colors.BOLD}By Race Type:{Colors.RESET}")
+        for race_type, count in stats['by_type'].items():
+            print(f"    {race_type}: {count}")
+        print()
+
+    if stats.get('by_function'):
+        print(f"  {Colors.BOLD}Top Functions:{Colors.RESET}")
+        for func, count in list(stats['by_function'].items())[:5]:
+            print(f"    {func}: {count}")
+        print()
+
+    if stats.get('hot_addresses'):
+        print(f"  {Colors.BOLD}{Colors.RED}Hot Spots (addresses with most races):{Colors.RESET}")
+        for addr, count in stats['hot_addresses'].items():
+            print(f"    {addr}: {count}")
+        print()
+
+
+def cmd_analyze(args):
+    """Handle analyze command"""
+    # Read input
+    if args.file:
+        try:
+            with open(args.file, 'r') as f:
+                text = f.read()
+        except FileNotFoundError:
+            print(f"{Colors.RED}Error: File not found: {args.file}{Colors.RESET}", file=sys.stderr)
+            return 1
+    else:
+        # Read from stdin
+        text = sys.stdin.read()
+
+    if not text.strip():
+        print(f"{Colors.YELLOW}No input provided{Colors.RESET}", file=sys.stderr)
+        return 1
+
+    # Analyze
+    races, analyses = analyze_text(text, update_history=not args.no_history)
+
+    if not races:
+        print(f"{Colors.YELLOW}No KCSAN reports found in input{Colors.RESET}")
+        return 0
+
+    # Initialize source viewer if requested
+    src_viewer = None
+    if args.show_source:
+        src_viewer = SourceCodeViewer(args.kernel_src)
+        if not src_viewer.is_available():
+            print(f"{Colors.YELLOW}Warning: Kernel source not found. Use --kernel-src to specify path.{Colors.RESET}\n")
+            src_viewer = None
+
+    # Print results
+    print_header(f"Found {len(races)} Data Race(s)")
+
+    for i, (race, analysis) in enumerate(zip(races, analyses)):
+        print_race_summary(race, i, analysis)
+
+        if args.verbose:
+            print(f"  {Colors.BOLD}{Colors.BLUE}Access Details{Colors.RESET}")
+            print_access_details(race.access1, "Access 1")
+            print_access_details(race.access2, "Access 2")
+            print_analysis(analysis)
+
+            # Show source code if requested
+            if src_viewer:
+                sources = src_viewer.get_race_sources(race, context_lines=args.context_lines)
+
+                print(f"  {Colors.BOLD}{Colors.BLUE}Source Code - Access 1{Colors.RESET}")
+                print_source_code(sources, 'access1')
+
+                print(f"  {Colors.BOLD}{Colors.BLUE}Source Code - Access 2{Colors.RESET}")
+                print_source_code(sources, 'access2')
+
+            if args.show_raw:
+                print(f"  {Colors.BOLD}{Colors.BLUE}Raw Report{Colors.RESET}")
+                for line in race.raw_report.split('\n')[:20]:  # Show first 20 lines
+                    print(f"    {line}")
+                print()
+
+    return 0
+
+
+def cmd_stats(args):
+    """Handle stats command"""
+    stats_tracker = KCSANStatistics()
+    stats = stats_tracker.get_statistics()
+
+    if not stats or stats.get('total_races', 0) == 0:
+        print(f"{Colors.YELLOW}No statistics available yet{Colors.RESET}")
+        print(f"Run analyze command first to build up statistics\n")
+        return 0
+
+    print_statistics(stats)
+
+    # Show history file location
+    print(f"{Colors.WHITE}History file:{Colors.RESET} {stats_tracker.history_file}")
+
+    return 0
+
+
+def cmd_clear(args):
+    """Handle clear command"""
+    stats_tracker = KCSANStatistics()
+
+    if args.force or input(f"{Colors.YELLOW}Clear all KCSAN history? (y/N): {Colors.RESET}").lower() == 'y':
+        stats_tracker.clear_history()
+        print(f"{Colors.GREEN}History cleared{Colors.RESET}")
+        return 0
+    else:
+        print(f"{Colors.YELLOW}Operation cancelled{Colors.RESET}")
+        return 1
+
+
+def cmd_export(args):
+    """Handle export command"""
+    stats_tracker = KCSANStatistics()
+    stats = stats_tracker.get_statistics()
+
+    if not stats or stats.get('total_races', 0) == 0:
+        print(f"{Colors.YELLOW}No data to export{Colors.RESET}", file=sys.stderr)
+        return 1
+
+    import json
+
+    if args.format == 'json':
+        output = json.dumps(stats_tracker.history, indent=2)
+    else:  # text
+        from io import StringIO
+        buffer = StringIO()
+        original_stdout = sys.stdout
+        sys.stdout = buffer
+        print_statistics(stats)
+        output = buffer.getvalue()
+        sys.stdout = original_stdout
+
+    if args.output:
+        with open(args.output, 'w') as f:
+            f.write(output)
+        print(f"{Colors.GREEN}Exported to {args.output}{Colors.RESET}")
+    else:
+        print(output)
+
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='KCSAN Report Analyzer - Analyze Kernel Concurrency Sanitizer reports',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Analyze from dmesg
+  dmesg | kcsan-analyze analyze
+
+  # Analyze from file
+  kcsan-analyze analyze -f kcsan_report.txt
+
+  # Analyze with verbose output
+  kcsan-analyze analyze -f report.txt -v
+
+  # Show statistics
+  kcsan-analyze stats
+
+  # Export statistics as JSON
+  kcsan-analyze export --format json -o stats.json
+
+  # Clear history
+  kcsan-analyze clear --force
+        """
+    )
+
+    parser.add_argument('--no-color', action='store_true',
+                        help='Disable colored output')
+
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+
+    # Analyze command
+    analyze_parser = subparsers.add_parser('analyze', help='Analyze KCSAN reports')
+    analyze_parser.add_argument('-f', '--file', help='Input file containing KCSAN report')
+    analyze_parser.add_argument('-v', '--verbose', action='store_true',
+                                help='Show detailed analysis and stack traces')
+    analyze_parser.add_argument('--show-raw', action='store_true',
+                                help='Show raw report text')
+    analyze_parser.add_argument('--no-history', action='store_true',
+                                help='Do not save to history')
+    analyze_parser.add_argument('--kernel-src', metavar='PATH',
+                                help='Path to kernel source directory')
+    analyze_parser.add_argument('--show-source', action='store_true',
+                                help='Show source code for race locations (requires -v)')
+    analyze_parser.add_argument('--context-lines', type=int, default=5,
+                                help='Number of context lines to show (default: 5)')
+
+    # Stats command
+    stats_parser = subparsers.add_parser('stats', help='Show statistics')
+
+    # Clear command
+    clear_parser = subparsers.add_parser('clear', help='Clear analysis history')
+    clear_parser.add_argument('-f', '--force', action='store_true',
+                              help='Force clear without confirmation')
+
+    # Export command
+    export_parser = subparsers.add_parser('export', help='Export statistics')
+    export_parser.add_argument('--format', choices=['json', 'text'], default='text',
+                               help='Export format (default: text)')
+    export_parser.add_argument('-o', '--output', help='Output file (default: stdout)')
+
+    args = parser.parse_args()
+
+    # Disable colors if requested or not a terminal
+    if args.no_color or not sys.stdout.isatty():
+        Colors.disable()
+
+    # Execute command
+    if args.command == 'analyze':
+        return cmd_analyze(args)
+    elif args.command == 'stats':
+        return cmd_stats(args)
+    elif args.command == 'clear':
+        return cmd_clear(args)
+    elif args.command == 'export':
+        return cmd_export(args)
+    else:
+        parser.print_help()
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main() or 0)

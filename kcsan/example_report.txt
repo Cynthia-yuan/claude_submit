@@ -1,0 +1,63 @@
+[  123.456789] =====================================================
+[  123.456790] BUG: KCSAN: data-race in example_function / example_read_function
+
+[  123.456791] write to 0xffffffff8245a1c0 of 4 bytes by task 1234 on cpu 0:
+[  123.456792]  example_function+0x45/0x100
+[  123.456793]  kernel/module.c:1234
+[  123.456794]  module_caller+0x78/0xa0
+[  123.456795]  do_init_module+0x23/0x180
+
+[  123.456796] read to 0xffffffff8245a1c0 of 4 bytes by task 5678 on cpu 1:
+[  123.456797]  example_read_function+0x23/0x80
+[  123.456798]  kernel/module.c:1250
+[  123.456799]  sys_init_module+0x45/0x200
+[  123.456800]  do_syscall_64+0x33/0x80
+
+[  123.456801] value changed: 0x00000000 -> 0x00000001
+
+[  123.456802] Reported by Kernel Concurrency Sanitizer: read/write size=4
+[  123.456803] =====================================================
+
+
+[  125.789012] =====================================================
+[  125.789013] BUG: KCSAN: data-race in atomic_read_counter / normal_write_counter
+
+[  125.789014] read to 0xffffffff8234b2d0 of 8 bytes by task 2345 on cpu 1:
+[  125.789015]  atomic_read_counter+0x12/0x50
+[  125.789016]  kernel/sched/core.c:890
+[  125.789017]  scheduler_tick+0x67/0x120
+[  125.789018]  update_process_times+0x34/0x60
+
+[  125.789019] write to 0xffffffff8234b2d0 of 8 bytes by task 3456 on cpu 0:
+[  125.789020]  normal_write_counter+0x28/0x70
+[  125.789021]  kernel/sched/core.c:920
+[  125.789022]  sched_fork+0x89/0x200
+[  125.789023]  copy_process+0xab/0x600
+
+[  125.789024] value changed: 0x0000000000000001 -> 0x0000000000000002
+
+[  125.789025] Reported by Kernel Concurrency Sanitizer: read/write size=8
+[  125.789026] This is a mixed atomic/non-atomic access race
+[  125.789027] =====================================================
+
+
+[  128.123456] =====================================================
+[  128.123457] BUG: KCSAN: data-race in net_device_priv_read / net_device_priv_write
+
+[  128.123458] write to 0xffff888123456789 of 4 bytes by task 4567 on cpu 2:
+[  128.123459]  net_device_priv_write+0x34/0x80
+[  128.123460]  net/core/dev.c:4567
+[  128.123461]  dev_set_promiscuity+0x56/0x100
+[  128.123462]  dev_ioctl+0x234/0x400
+
+[  128.123463] write to 0xffff888123456789 of 4 bytes by task 5678 on cpu 3:
+[  128.123464]  net_device_priv_write+0x34/0x80
+[  128.123465]  net/core/dev.c:4567
+[  128.123466]  dev_change_flags+0x78/0x150
+[  128.123467]  do_dev_ioctl+0x45/0x80
+
+[  128.123468] value changed: 0x00000001 -> 0x00000003
+
+[  128.123469] Reported by Kernel Concurrency Sanitizer: write/write size=4
+[  128.123470] This is a write-write race (HIGH severity)
+[  128.123471] =====================================================
