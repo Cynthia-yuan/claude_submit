@@ -17,6 +17,7 @@ from kcsan_analyzer import (
     KCSANAnalyzer,
     KCSANStatistics,
     SourceCodeViewer,
+    VariableResolver,
     analyze_text
 )
 
@@ -87,13 +88,96 @@ def print_access_details(access, label: str):
     print(f"      {Colors.WHITE}Size:{Colors.RESET} {access.size} bytes")
     print(f"      {Colors.WHITE}Task/CPU:{Colors.RESET} {access.task_info}/{access.cpu}")
 
+    # Extract file:line from stack trace
+    file_line = None
+    if access.stack_trace:
+        for frame in access.stack_trace[:3]:
+            # Look for file.c:line pattern
+            import re
+            match = re.search(r'([a-zA-Z0-9_/\-\.]+\.c):(\d+)', frame)
+            if match:
+                file_line = f"{match.group(1)}:{match.group(2)}"
+                break
+
+        if file_line:
+            print(f"      {Colors.WHITE}Location:{Colors.RESET} {Colors.CYAN}{file_line}{Colors.RESET}")
+
     if access.stack_trace:
         print(f"      {Colors.WHITE}Stack Trace:{Colors.RESET}")
         for i, frame in enumerate(access.stack_trace[:5]):  # Show top 5 frames
-            print(f"        {Colors.MAGENTA}{i+1}.{Colors.RESET} {frame}")
+            # Highlight file:line if present
+            import re
+            match = re.search(r'([a-zA-Z0-9_/\-\.]+\.c):(\d+)', frame)
+            if match:
+                file_part = match.group(1)
+                line_num = match.group(2)
+                # Reconstruct with highlight
+                colored_frame = frame.replace(
+                    f"{file_part}:{line_num}",
+                    f"{Colors.CYAN}{file_part}{Colors.WHITE}:{Colors.YELLOW}{line_num}{Colors.WHITE}"
+                )
+                print(f"        {Colors.MAGENTA}{i+1}.{Colors.RESET} {colored_frame}")
+            else:
+                print(f"        {Colors.MAGENTA}{i+1}.{Colors.RESET} {frame}")
         if len(access.stack_trace) > 5:
             print(f"        ... and {len(access.stack_trace) - 5} more frames")
     print()
+
+
+def print_race_comparison(race):
+    """Print a side-by-side comparison of both race accesses"""
+    import re
+
+    print(f"  {Colors.BOLD}{Colors.BLUE}Race Location Comparison{Colors.RESET}")
+    print(f"  {Colors.BOLD}{'─' * 58}{Colors.RESET}")
+
+    # Extract file:line for both accesses
+    def extract_location(stack_trace):
+        if not stack_trace:
+            return None, None
+        for frame in stack_trace[:3]:
+            match = re.search(r'([a-zA-Z0-9_/\-\.]+\.c):(\d+)', frame)
+            if match:
+                return match.group(1), match.group(2)
+        return None, None
+
+    file1, line1 = extract_location(race.access1.stack_trace)
+    file2, line2 = extract_location(race.access2.stack_trace)
+
+    # Function names
+    func1 = race.access1.stack_trace[0] if race.access1.stack_trace else "Unknown"
+    func2 = race.access2.stack_trace[0] if race.access2.stack_trace else "Unknown"
+
+    # Print comparison table
+    type1_color = Colors.RED if race.access1.access_type == 'write' else Colors.GREEN
+    type2_color = Colors.RED if race.access2.access_type == 'write' else Colors.GREEN
+
+    print(f"  {Colors.WHITE}{'Aspect':<15} │ {Colors.WHITE}Access 1{Colors.RESET:<20} │ {Colors.WHITE}Access 2{Colors.RESET}")
+    print(f"  {Colors.BOLD}{'─' * 15}{Colors.RESET}─{Colors.BOLD}{'─' * 22}{Colors.RESET}─{Colors.BOLD}{'─' * 20}{Colors.RESET}")
+
+    print(f"  {Colors.WHITE}{'Type':<15} │ {Colors.RESET}{type1_color}{race.access1.access_type.upper():<20}{Colors.RESET} │ {type2_color}{race.access2.access_type.upper():<20}{Colors.RESET}")
+
+    if file1 or file2:
+        file1_display = file1 if file1 else "N/A"
+        file2_display = file2 if file2 else "N/A"
+        # Shorten filename if too long
+        if len(file1_display) > 17:
+            file1_display = "..." + file1_display[-17:]
+        if len(file2_display) > 17:
+            file2_display = "..." + file2_display[-17:]
+        print(f"  {Colors.WHITE}{'File':<15} │ {Colors.CYAN}{file1_display:<20}{Colors.RESET} │ {Colors.CYAN}{file2_display:<20}{Colors.RESET}")
+
+    if line1 or line2:
+        line1_display = line1 if line1 else "N/A"
+        line2_display = line2 if line2 else "N/A"
+        print(f"  {Colors.WHITE}{'Line':<15} │ {Colors.YELLOW}{line1_display:<20}{Colors.RESET} │ {Colors.YELLOW}{line2_display:<20}{Colors.RESET}")
+
+    func1_display = func1[:17] + "..." if len(func1) > 20 else func1
+    func2_display = func2[:17] + "..." if len(func2) > 20 else func2
+    print(f"  {Colors.WHITE}{'Function':<15} │ {Colors.MAGENTA}{func1_display:<20}{Colors.RESET} │ {Colors.MAGENTA}{func2_display:<20}{Colors.RESET}")
+
+    print(f"  {Colors.BOLD}{'─' * 58}{Colors.RESET}\n")
+
 
 
 def print_analysis(analysis: dict):
@@ -127,6 +211,29 @@ def print_source_code(sources: dict, access_label: str):
             print(f"  {Colors.RED}{line}{Colors.RESET}")
         else:
             print(f"  {line}")
+    print()
+
+
+def print_variable_info(var_info: dict):
+    """Print resolved variable information"""
+    confidence_colors = {
+        'high': Colors.GREEN,
+        'medium': Colors.YELLOW,
+        'low': Colors.RED
+    }
+    confidence_color = confidence_colors.get(var_info.get('confidence', 'low'), Colors.WHITE)
+
+    print(f"  {Colors.BOLD}{Colors.BLUE}Variable Identification{Colors.RESET}")
+    print(f"    {Colors.WHITE}Variable Name:{Colors.RESET} {Colors.BOLD}{Colors.CYAN}{var_info.get('variable_name', 'Unknown')}{Colors.RESET}")
+    print(f"    {Colors.WHITE}Address:{Colors.RESET} {var_info.get('address', 'N/A')}")
+    print(f"    {Colors.WHITE}Confidence:{Colors.RESET} {confidence_color}{var_info.get('confidence', 'low').upper()}{Colors.RESET}")
+    print(f"    {Colors.WHITE}Method:{Colors.RESET} {var_info.get('method', 'N/A')}")
+
+    if var_info.get('symbol_info'):
+        sym = var_info['symbol_info']
+        print(f"    {Colors.WHITE}Symbol:{Colors.RESET} {sym.get('function', 'N/A')}")
+        print(f"    {Colors.WHITE}Location:{Colors.RESET} {sym.get('location', 'N/A')}")
+
     print()
 
 
@@ -196,6 +303,14 @@ def cmd_analyze(args):
             print(f"{Colors.YELLOW}Warning: Kernel source not found. Use --kernel-src to specify path.{Colors.RESET}\n")
             src_viewer = None
 
+    # Initialize variable resolver if requested
+    var_resolver = None
+    if args.resolve_vars:
+        var_resolver = VariableResolver(args.vmlinux, args.kernel_src)
+        if not var_resolver.is_available():
+            print(f"{Colors.YELLOW}Warning: Variable resolution not available. Provide --kernel-src or --vmlinux.{Colors.RESET}\n")
+            var_resolver = None
+
     # Print results
     print_header(f"Found {len(races)} Data Race(s)")
 
@@ -203,15 +318,27 @@ def cmd_analyze(args):
         print_race_summary(race, i, analysis)
 
         if args.verbose:
+            # Print comparison view first
+            print_race_comparison(race)
+
             print(f"  {Colors.BOLD}{Colors.BLUE}Access Details{Colors.RESET}")
             print_access_details(race.access1, "Access 1")
             print_access_details(race.access2, "Access 2")
             print_analysis(analysis)
 
-            # Show source code if requested
-            if src_viewer:
+            # Get sources if needed for variable resolution or display
+            sources = None
+            if src_viewer and (var_resolver or args.show_source):
                 sources = src_viewer.get_race_sources(race, context_lines=args.context_lines)
 
+            # Resolve variables if requested
+            if var_resolver and sources:
+                var_info = var_resolver.resolve_race_variable(race, sources)
+                if var_info:
+                    print_variable_info(var_info)
+
+            # Show source code if requested
+            if src_viewer and sources:
                 print(f"  {Colors.BOLD}{Colors.BLUE}Source Code - Access 1{Colors.RESET}")
                 print_source_code(sources, 'access1')
 
@@ -336,6 +463,10 @@ Examples:
                                 help='Show source code for race locations (requires -v)')
     analyze_parser.add_argument('--context-lines', type=int, default=5,
                                 help='Number of context lines to show (default: 5)')
+    analyze_parser.add_argument('--vmlinux', metavar='PATH',
+                                help='Path to vmlinux binary with debug symbols')
+    analyze_parser.add_argument('--resolve-vars', action='store_true',
+                                help='Attempt to identify variable names (requires --show-source)')
 
     # Stats command
     stats_parser = subparsers.add_parser('stats', help='Show statistics')

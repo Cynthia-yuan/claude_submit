@@ -513,3 +513,193 @@ class SourceCodeViewer:
     def is_available(self) -> bool:
         """Check if source code is available"""
         return self.kernel_src is not None
+
+
+class VariableResolver:
+    """Resolve variable names from addresses and source code context"""
+
+    def __init__(self, vmlinux_path: Optional[str] = None, kernel_src: Optional[str] = None):
+        self.vmlinux_path = self._find_vmlinux(vmlinux_path)
+        self.kernel_src = Path(kernel_src) if kernel_src else None
+        self.addr2line = self._find_addr2line()
+
+    def _find_vmlinux(self, provided_path: Optional[str]) -> Optional[Path]:
+        """Find vmlinux binary with debug symbols"""
+        if provided_path:
+            path = Path(provided_path)
+            if path.exists():
+                return path
+            return None
+
+        # Common locations
+        candidates = [
+            Path("/usr/lib/debug/boot") / f"vmlinux-{os.uname().release}",
+            Path("/boot") / f"vmlinux-{os.uname().release}",
+            Path("/lib/modules") / os.uname().release / "build" / "vmlinux",
+            Path(".o") / "vmlinux",  # Kernel build directory
+        ]
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+        return None
+
+    def _find_addr2line(self) -> Optional[str]:
+        """Find addr2line or llvm-addr2line"""
+        import shutil
+
+        # Try llvm-addr2line first (for LLVM-built kernels)
+        for tool in ['llvm-addr2line', 'addr2line', 'llvm-addr2line-15', 'llvm-addr2line-14']:
+            if shutil.which(tool):
+                return tool
+
+        return None
+
+    def resolve_address(self, address: str) -> Optional[Dict]:
+        """Resolve address to symbol and variable information"""
+        if not self.vmlinux_path or not self.addr2line:
+            return None
+
+        try:
+            import subprocess
+            result = subprocess.run(
+                [self.addr2line, '-e', str(self.vmlinux_path), '-f', '-C', address],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                if len(lines) >= 2:
+                    return {
+                        'function': lines[0],
+                        'location': lines[1],
+                        'address': address
+                    }
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            pass
+
+        return None
+
+    def extract_variable_from_source(self, source_context: Dict) -> Optional[str]:
+        """Extract variable name from source code context using heuristics"""
+        if not source_context or 'context' not in source_context:
+            return None
+
+        context = source_context['context']
+        target_line_idx = None
+
+        # Find the marked line (with >>>)
+        for i, line in enumerate(context):
+            if '>>>' in line:
+                target_line_idx = i
+                break
+
+        if target_line_idx is None:
+            return None
+
+        target_line = context[target_line_idx]
+
+        # Pattern 1: Direct variable access: varname
+        # Pattern 2: Member access: ptr->field or struct.field
+        # Pattern 3: Array access: array[index]
+        # Pattern 4: Assignment: var = value or value = var
+
+        # Extract the actual code (remove line number and marker)
+        code_match = re.search(r'>>>?\s*\d+\s*(.+)$', target_line)
+        if not code_match:
+            code_match = re.search(r'\s*\d+\s*(.+)$', target_line)
+
+        if not code_match:
+            return None
+
+        code = code_match.group(1).strip()
+
+        # Remove comments
+        code = re.sub(r'//.*$', '', code)
+        code = re.sub(r'/\*.*?\*/', '', code)
+
+        # Try to extract variable from common patterns
+        var_patterns = [
+            r'(\w+)\s*\+\+',           # var++
+            r'(\w+)\s*--',              # var--
+            r'\+\+\s*(\w+)',            # ++var
+            r'--\s*(\w+)',              # --var
+            r'(\w+)\s*[\+\-\*/%]=',     # var op= value
+            r'(\w+)\s*=\s*[^=]',        # var = value
+            r'=\s*(\w+)\s*[;,]',        # value = var
+            r'(\w+)\s*\[[^\]]+\]',      # array[index]
+            r'->\s*(\w+)\s*[;,)]',      # ptr->field
+            r'\.\s*(\w+)\s*[;,)]',      # struct.field
+            r'(\w+)\s*\)',              # function(var)
+        ]
+
+        for pattern in var_patterns:
+            match = re.search(pattern, code)
+            if match:
+                var_name = match.group(1)
+                # Filter out common non-variable keywords
+                if var_name not in ['if', 'while', 'for', 'return', 'sizeof', 'typeof',
+                                   'unlikely', 'likely', 'typeof', 'alignof']:
+                    return var_name
+
+        # Look at surrounding context for variable declarations
+        # Check if there's a variable declaration nearby
+        for i in range(max(0, target_line_idx - 3), min(len(context), target_line_idx + 2)):
+            line = context[i]
+            # Pattern: type varname;
+            decl_match = re.search(r'(?:int|long|char|unsigned|struct|atomic|spinlock|void)\s+(\*?\s*\w+)', line)
+            if decl_match:
+                var_name = decl_match.group(1).strip().replace('*', '').strip()
+                # Check if this variable appears in the target line
+                if var_name in code:
+                    return var_name
+
+        return None
+
+    def resolve_race_variable(self, race: DataRace, sources: Dict) -> Optional[Dict]:
+        """Resolve the variable name involved in a data race"""
+        result = {
+            'address': race.access1.address,
+            'variable_name': None,
+            'confidence': 'low',
+            'method': None,
+            'symbol_info': None
+        }
+
+        # Try addr2line first
+        if self.vmlinux_path and self.addr2line:
+            symbol_info = self.resolve_address(race.access1.address)
+            if symbol_info:
+                result['symbol_info'] = symbol_info
+                # Extract variable from symbol name if it contains global variable info
+                # addr2line typically gives function name, not variable
+
+        # Try source code analysis
+        source_ctx1 = sources.get('access1') if sources else None
+        source_ctx2 = sources.get('access2') if sources else None
+
+        var_from_source1 = self.extract_variable_from_source(source_ctx1) if source_ctx1 else None
+        var_from_source2 = self.extract_variable_from_source(source_ctx2) if source_ctx2 else None
+
+        # If both sources point to the same variable, high confidence
+        if var_from_source1 and var_from_source1 == var_from_source2:
+            result['variable_name'] = var_from_source1
+            result['confidence'] = 'high'
+            result['method'] = 'source_analysis_both'
+        elif var_from_source1:
+            result['variable_name'] = var_from_source1
+            result['confidence'] = 'medium'
+            result['method'] = 'source_analysis_access1'
+        elif var_from_source2:
+            result['variable_name'] = var_from_source2
+            result['confidence'] = 'medium'
+            result['method'] = 'source_analysis_access2'
+
+        return result if result['variable_name'] else None
+
+    def is_available(self) -> bool:
+        """Check if variable resolution is available"""
+        return self.kernel_src is not None or (self.vmlinux_path is not None and self.addr2line is not None)
