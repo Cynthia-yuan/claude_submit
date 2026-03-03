@@ -289,7 +289,9 @@ def cmd_analyze(args):
         return 1
 
     # Analyze
-    races, analyses = analyze_text(text, update_history=not args.no_history)
+    from kcsan_analyzer import KCSANParser, KCSANAnalyzer
+    parser = KCSANParser()
+    races = parser.parse_dmesg_output(text)
 
     if not races:
         print(f"{Colors.YELLOW}No KCSAN reports found in input{Colors.RESET}")
@@ -311,6 +313,30 @@ def cmd_analyze(args):
             print(f"{Colors.YELLOW}Warning: Variable resolution not available. Provide --kernel-src or --vmlinux.{Colors.RESET}\n")
             var_resolver = None
 
+    # Analyze each race with variable information
+    analyzer = KCSANAnalyzer(parser)
+    analyses = []
+
+    for race in races:
+        variable_name = None
+        sources = None
+
+        # Try to resolve variable first for better analysis
+        if var_resolver and src_viewer:
+            sources = src_viewer.get_race_sources(race, context_lines=args.context_lines)
+            var_info = var_resolver.resolve_race_variable(race, sources)
+            if var_info:
+                variable_name = var_info.get('variable_name')
+
+        # Analyze with variable context
+        analysis = analyzer.analyze_race(race, variable_name)
+        analyses.append(analysis)
+
+    # Save to history
+    if not args.no_history:
+        stats = KCSANStatistics()
+        stats.add_races(races)
+
     # Print results
     print_header(f"Found {len(races)} Data Race(s)")
 
@@ -324,14 +350,22 @@ def cmd_analyze(args):
             print(f"  {Colors.BOLD}{Colors.BLUE}Access Details{Colors.RESET}")
             print_access_details(race.access1, "Access 1")
             print_access_details(race.access2, "Access 2")
+
+            # Print variable type if available
+            if analysis.get('variable_type'):
+                print(f"  {Colors.BOLD}{Colors.BLUE}Variable Type{Colors.RESET}")
+                print(f"    {Colors.WHITE}Inferred Type:{Colors.RESET} {Colors.CYAN}{analysis['variable_type']}{Colors.RESET}")
+                print()
+
             print_analysis(analysis)
 
-            # Get sources if needed for variable resolution or display
+            # Get sources if needed for display
             sources = None
-            if src_viewer and (var_resolver or args.show_source):
-                sources = src_viewer.get_race_sources(race, context_lines=args.context_lines)
+            if src_viewer and args.show_source:
+                if not sources:  # If not already fetched for variable resolution
+                    sources = src_viewer.get_race_sources(race, context_lines=args.context_lines)
 
-            # Resolve variables if requested
+            # Show variable info if resolved
             if var_resolver and sources:
                 var_info = var_resolver.resolve_race_variable(race, sources)
                 if var_info:
@@ -467,6 +501,8 @@ Examples:
                                 help='Path to vmlinux binary with debug symbols')
     analyze_parser.add_argument('--resolve-vars', action='store_true',
                                 help='Attempt to identify variable names (requires --show-source)')
+    analyze_parser.add_argument('--diagnose', action='store_true',
+                                help='Show diagnostic information for debugging source code resolution')
 
     # Stats command
     stats_parser = subparsers.add_parser('stats', help='Show statistics')

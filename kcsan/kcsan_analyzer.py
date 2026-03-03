@@ -224,14 +224,15 @@ class KCSANAnalyzer:
         self.parser = parser
         self.races = parser.races
 
-    def analyze_race(self, race: DataRace) -> dict:
+    def analyze_race(self, race: DataRace, variable_name: Optional[str] = None) -> dict:
         """Analyze a single data race and provide suggestions"""
         analysis = {
             'severity': self._assess_severity(race),
             'race_pattern': self._identify_pattern(race),
-            'likely_cause': self._determine_cause(race),
-            'fix_suggestions': self._generate_fix_suggestions(race),
-            'related_locations': self._find_related_locations(race)
+            'likely_cause': self._determine_cause(race, variable_name),
+            'fix_suggestions': self._generate_fix_suggestions(race, variable_name),
+            'related_locations': self._find_related_locations(race),
+            'variable_type': self._infer_variable_type(race, variable_name) if variable_name else None
         }
         return analysis
 
@@ -259,7 +260,7 @@ class KCSANAnalyzer:
         else:
             return 'unknown-pattern'
 
-    def _determine_cause(self, race: DataRace) -> str:
+    def _determine_cause(self, race: DataRace, variable_name: Optional[str] = None) -> str:
         """Determine the likely cause of the race"""
         pattern = self._identify_pattern(race)
 
@@ -270,28 +271,143 @@ class KCSANAnalyzer:
             'unknown-pattern': 'Unsynchronized concurrent access to shared data'
         }
 
-        return causes.get(pattern, 'Unknown - needs manual investigation')
+        base_cause = causes.get(pattern, 'Unknown - needs manual investigation')
 
-    def _generate_fix_suggestions(self, race: DataRace) -> List[str]:
+        # Add variable-specific context if available
+        if variable_name:
+            if 'counter' in variable_name.lower():
+                base_cause += f' (counter variable "{variable_name}" likely needs atomic_t or spinlock protection)'
+            elif 'flag' in variable_name.lower():
+                base_cause += f' (flag variable "{variable_name}" should use atomic_ops or proper locking)'
+            elif 'lock' in variable_name.lower():
+                base_cause += f' (lock variable "{variable_name}" - incorrect lock usage detected)'
+
+        return base_cause
+
+    def _infer_variable_type(self, race: DataRace, variable_name: str) -> str:
+        """Infer the type/usage pattern of the variable"""
+        var_lower = variable_name.lower()
+
+        # Counter-like patterns
+        if any(x in var_lower for x in ['count', 'num', 'idx', 'index', 'len', 'size', 'total']):
+            if race.access1.size == 8:
+                return '64-bit counter'
+            elif race.access1.size == 4:
+                return '32-bit counter'
+            return 'counter'
+
+        # Flag/boolean patterns
+        if any(x in var_lower for x in ['flag', 'enabled', 'disabled', 'active', 'ready', 'pending']):
+            return 'boolean flag'
+
+        # Lock/state patterns
+        if any(x in var_lower for x in ['lock', 'spinlock', 'mutex', 'state', 'status']):
+            return 'state/lock variable'
+
+        # Pointer patterns
+        if any(x in var_lower for x in ['ptr', 'pointer', 'head', 'next', 'prev', 'list']):
+            return 'pointer/linked-list'
+
+        # Buffer/data patterns
+        if any(x in var_lower for x in ['buf', 'buffer', 'data', 'msg', 'packet']):
+            return 'data buffer'
+
+        # Config/parameter patterns
+        if any(x in var_lower for x in ['config', 'cfg', 'setting', 'param', 'option']):
+            return 'configuration parameter'
+
+        return 'unknown type'
+
+    def _generate_fix_suggestions(self, race: DataRace, variable_name: Optional[str] = None) -> List[str]:
         """Generate fix suggestions for the race"""
         suggestions = []
         pattern = self._identify_pattern(race)
 
+        # Infer variable type if name is available
+        var_type = self._infer_variable_type(race, variable_name) if variable_name else None
+
+        # Pattern-specific suggestions
         if pattern == 'missing-lock-protection':
-            suggestions.append('Add a spinlock or mutex to protect the shared variable')
-            suggestions.append('Use READ_ONCE/WRITE_ONCE if ordering is not required')
-            suggestions.append('Consider using atomic operations for simple counters')
+            if var_type == 'counter':
+                suggestions.append(f'Convert "{variable_name}" to atomic_t type for lock-free counter access')
+                suggestions.append(f'Use atomic_inc()/atomic_dec() for "{variable_name}" instead of direct access')
+                suggestions.append(f'Or protect "{variable_name}" with a spinlock if complex updates are needed')
+            elif var_type == 'boolean flag':
+                suggestions.append(f'Use atomic_set()/atomic_read() for flag variable "{variable_name}"')
+                suggestions.append(f'Or use spinlock to protect "{variable_name}" when both reading and writing')
+            elif var_type == 'state/lock variable':
+                suggestions.append(f'⚠️  "{variable_name}" appears to be a lock/state variable - check lock ordering!')
+                suggestions.append(f'Ensure proper lock acquisition/release order to prevent deadlocks')
+            else:
+                suggestions.append(f'Add a spinlock (spin_lock_t) or mutex to protect "{variable_name}"')
+                suggestions.append(f'Use READ_ONCE/WRITE_ONCE for "{variable_name}" if ordering is not required')
+
         elif pattern == 'mixed-atomic-non-atomic':
-            suggestions.append('Ensure all accesses use atomic_*() operations')
-            suggestions.append('Or protect all accesses with a lock instead')
+            suggestions.append(f'⚠️  CRITICAL: Inconsistent atomic access to "{variable_name}"')
+            suggestions.append(f'Ensure ALL accesses to "{variable_name}" use atomic_*() operations')
+            suggestions.append(f'Or convert to lock-based protection with spin_lock/spin_unlock')
+            suggestions.append(f'Check all call sites: grep -rn "{variable_name}" kernel/')
+
         elif pattern == 'initialization-race':
-            suggestions.append('Use __read_mostly annotation for read-after-init variables')
-            suggestions.append('Add proper initialization barriers')
-            suggestions.append('Consider using once mechanisms for one-time init')
+            suggestions.append(f'Use __read_mostly annotation for "{variable_name}" if read-only after init')
+            suggestions.append(f'Add proper initialization barriers (smp_mb()) for "{variable_name}"')
+            suggestions.append(f'Consider using DEFINE_STATIC_KEY_*() for flag-type initialization')
+
+        else:  # unknown-pattern - provide variable-type specific suggestions
+            if variable_name and var_type:
+                if 'counter' in var_type:
+                    suggestions.append(f'Convert "{variable_name}" to atomic_t for safe concurrent access')
+                    suggestions.append(f'Use atomic_inc()/atomic_dec() instead of {variable_name}++ or {variable_name}--')
+                    if race.access1.size <= 4:
+                        suggestions.append(f'Consider using atomic_t for "{variable_name}" (32-bit operations)')
+                    else:
+                        suggestions.append(f'Consider using atomic64_t for "{variable_name}" (64-bit operations)')
+                    suggestions.append(f'Or use DEFINE_PER_CPU for "{variable_name}" to avoid locking (per-CPU counters)')
+                elif 'flag' in var_type:
+                    suggestions.append(f'Use atomic_t for "{variable_name}" with atomic_set()/atomic_read()')
+                    suggestions.append(f'Or protect "{variable_name}" with spin_lock/spin_unlock')
+                elif 'pointer' in var_type or 'list' in var_type:
+                    suggestions.append(f'⚠️  Pointer races can cause corruption! Use RCU for "{variable_name}"')
+                    suggestions.append(f'Or use proper locking: spin_lock(&list_lock); ...; spin_unlock(&list_lock)')
+                else:
+                    suggestions.append(f'Add proper synchronization for "{variable_name}" (lock or atomic operations)')
+
+        # Variable-type specific suggestions (additional for all patterns)
+        if variable_name and var_type:
+            if 'counter' in var_type:
+                if race.access1.size <= 4:
+                    suggestions.append(f'💡 Use atomic_t for "{variable_name}" - most efficient for 32-bit counters')
+                else:
+                    suggestions.append(f'💡 Use atomic64_t or local_t for "{variable_name}" (64-bit)')
+
+                # Add per-CPU suggestion if not already added
+                if not any('per-CPU' in s or 'DEFINE_PER_CPU' in s for s in suggestions):
+                    suggestions.append(f'💡 For best performance, use per-CPU counters: DEFINE_PER_CPU(long, {variable_name})')
+
+            elif 'pointer' in var_type or 'list' in var_type:
+                suggestions.append(f'⚠️  Pointer/List races are dangerous - may cause memory corruption!')
+                suggestions.append(f'Use RCU (read-copy-update) for list traversal: rcu_read_lock()/rcu_dereference()')
+                suggestions.append(f'Or use proper locking: spin_lock(&list_lock); list_add(...); spin_unlock(&list_lock)')
+
+            elif 'buffer' in var_type:
+                suggestions.append(f'For shared buffers, consider using seqlock_t or separate reader/writer pointers')
+                suggestions.append(f'Or use memory barriers (smp_wmb()/smp_rmb()) with proper synchronization')
+
+        # Size-based suggestions
+        if race.access1.size > 8:
+            suggestions.append(f'⚠️  Large access ({race.access1.size} bytes) - may need memcpy_with_mb() or proper struct alignment')
+            suggestions.append(f'Ensure the structure is properly packed and aligned')
+
+        # Access-specific suggestions
+        if race.access1.access_type == 'write' and race.access2.access_type == 'write':
+            suggestions.append(f'⚠️  Write-Write race detected - can cause lost updates or data corruption!')
+            suggestions.append(f'Use atomic_cmpxchg() for lock-free updates or add proper locking')
 
         # General suggestions
-        suggestions.append('Review if the variable can be made local (not shared)')
-        suggestions.append('Consider using kcsan_check_*() annotations to suppress false positives')
+        if not variable_name:
+            suggestions.append('Identify the conflicted variable name with --resolve-vars for specific suggestions')
+        suggestions.append('Review if the variable can be made per-CPU (DECLARE_PER_CPU)')
+        suggestions.append('Consider using kcsan_check_*() annotations to suppress false positives if appropriate')
 
         return suggestions
 
@@ -509,6 +625,42 @@ class SourceCodeViewer:
                 break
 
         return result
+
+    def get_race_sources_debug(self, race: DataRace) -> Dict[str, str]:
+        """Debug version that returns information about why sources weren't found"""
+        debug_info = {'access1': 'No stack trace', 'access2': 'No stack trace'}
+
+        # Debug access 1
+        if not race.access1.stack_trace:
+            debug_info['access1'] = 'Empty stack trace'
+        else:
+            debug_info['access1'] = f"Stack has {len(race.access1.stack_trace)} frames: {race.access1.stack_trace[:3]}"
+            found = False
+            for i, frame in enumerate(race.access1.stack_trace):
+                extracted = self.extract_file_line(frame)
+                if extracted:
+                    debug_info['access1'] = f"Found file:line at frame {i}: {extracted[0]}:{extracted[1]}"
+                    found = True
+                    break
+                else:
+                    debug_info['access1'] += f"\n  Frame {i}: '{frame}' - No file:line match"
+
+        # Debug access 2
+        if not race.access2.stack_trace:
+            debug_info['access2'] = 'Empty stack trace'
+        else:
+            debug_info['access2'] = f"Stack has {len(race.access2.stack_trace)} frames: {race.access2.stack_trace[:3]}"
+            found = False
+            for i, frame in enumerate(race.access2.stack_trace):
+                extracted = self.extract_file_line(frame)
+                if extracted:
+                    debug_info['access2'] = f"Found file:line at frame {i}: {extracted[0]}:{extracted[1]}"
+                    found = True
+                    break
+                else:
+                    debug_info['access2'] += f"\n  Frame {i}: '{frame}' - No file:line match"
+
+        return debug_info
 
     def is_available(self) -> bool:
         """Check if source code is available"""
