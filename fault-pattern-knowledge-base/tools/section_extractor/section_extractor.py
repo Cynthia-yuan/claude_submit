@@ -141,14 +141,16 @@ class SectionExtractor:
 
         for elem_type, element in elements:
             if elem_type == 'para':
-                # 段落元素，递增索引
+                # 段落元素，递增索引（表示已经处理了这个段落）
                 para_index += 1
 
             elif elem_type == 'table':
-                # 表格元素：表格属于它之前的段落所在的章节
-                # 所以检查 para_index - 1 是否在范围内
-                table_section = para_index - 1
-                if start_idx <= table_section < end_idx:
+                # 表格元素：表格位于段落之间，其位置等于前面段落的数量
+                # 如果表格在段落4之后，那它的位置就是4
+                table_position = para_index - 1
+                logger.debug(f"表格{table_index}在段落{table_position}之后，范围检查: {start_idx} <= {table_position} < {end_idx}")
+
+                if start_idx <= table_position < end_idx:
                     # 提取表格
                     try:
                         table = doc.tables[table_index]
@@ -172,7 +174,7 @@ class SectionExtractor:
                             'rows': rows
                         })
 
-                        logger.debug(f"提取表格 {len(tables_data)}（属于段落{table_section}）")
+                        logger.debug(f"提取表格 {len(tables_data)}（在段落{table_position}之后）")
 
                     except Exception as e:
                         logger.warning(f"解析表格失败: {e}")
