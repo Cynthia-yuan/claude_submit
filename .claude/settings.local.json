@@ -13,7 +13,10 @@
       "Read(//Users/yuanlulu/.claude/**)",
       "Bash(python:*)",
       "Bash(git rm:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(pip3 install:*)"
     ]
   }
 }

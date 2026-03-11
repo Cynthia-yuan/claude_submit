@@ -2,33 +2,23 @@
 """
 章节信息提取工具
 
-从文档中提取指定章节的内容，识别表格并输出结构化数据
+从 Word 文档中提取指定章节的内容，识别表格并分类输出
 """
 
 import re
-import json
+import sys
 import logging
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional
+from pathlib import Path
+
+try:
+    from docx import Document
+except ImportError:
+    print("错误: 需要安装 python-docx")
+    print("请运行: pip install python-docx")
+    sys.exit(1)
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class TableInfo:
-    """表格信息"""
-    headers: List[str]
-    rows: List[List[str]]
-    markdown: str
-
-
-@dataclass
-class SectionInfo:
-    """章节信息"""
-    section_id: str
-    title: str
-    content: str
-    tables: List[TableInfo]
 
 
 class SectionExtractor:
@@ -36,260 +26,183 @@ class SectionExtractor:
 
     def __init__(self):
         """初始化提取器"""
-        # 章节编号的正则表达式模式
-        # 匹配如: 5.1.2.1, 5.1.2, 5.1 等
-        self.section_pattern = re.compile(
-            r'^(\d+(?:\.\d+)*)(?=\s+)'
-        )
+        # 章节编号的正则表达式
+        self.section_pattern = re.compile(r'^(\d+(?:\.\d+)*)\s+(.+)')
 
     def extract_from_file(
         self,
         file_path: str,
         section_id: str
-    ) -> Optional[SectionInfo]:
+    ) -> Optional[Dict]:
         """
-        从文件中提取指定章节
+        从 docx 文件中提取指定章节
 
         Args:
-            file_path: 文档路径
+            file_path: Word 文档路径
             section_id: 章节编号，如 "5.1.2.1"
 
         Returns:
-            章节信息，如果未找到返回 None
+            章节信息字典
         """
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-
-            return self.extract_from_content(content, section_id)
-
+            doc = Document(file_path)
         except Exception as e:
             logger.error(f"读取文件失败: {e}")
             return None
 
-    def extract_from_content(
-        self,
-        content: str,
-        section_id: str
-    ) -> Optional[SectionInfo]:
-        """
-        从内容中提取指定章节
-
-        Args:
-            content: 文档内容
-            section_id: 章节编号
-
-        Returns:
-            章节信息
-        """
-        lines = content.split('\n')
-
         # 查找章节开始位置
-        start_idx = self._find_section_start(lines, section_id)
+        start_idx = None
+        section_title = None
+
+        for idx, para in enumerate(doc.paragraphs):
+            match = self.section_pattern.match(para.text.strip())
+            if match:
+                current_section_id = match.group(1)
+                if current_section_id == section_id:
+                    start_idx = idx
+                    section_title = match.group(2).strip()
+                    logger.info(f"找到章节 {section_id} 在第 {idx + 1} 段")
+                    break
+
         if start_idx is None:
             logger.warning(f"未找到章节: {section_id}")
             return None
 
         # 查找章节结束位置（下一个同级或更高级章节）
-        end_idx = self._find_section_end(lines, start_idx, section_id)
+        end_idx = self._find_section_end(doc.paragraphs, start_idx, section_id)
 
-        # 提取章节内容
-        section_lines = lines[start_idx:end_idx]
-        title_line = section_lines[0] if section_lines else ""
+        # 提取表格（在章节范围内的表格）
+        tables = self._extract_tables_from_doc(doc, start_idx, end_idx)
 
-        # 提取标题（去掉章节编号）
-        title = self._extract_title(title_line, section_id)
+        # 分类数据
+        categorized = self._categorize_items(tables)
 
-        # 提取原始内容
-        raw_content = '\n'.join(section_lines)
-
-        # 识别并提取表格
-        tables = self._extract_tables(section_lines)
-
-        return SectionInfo(
-            section_id=section_id,
-            title=title,
-            content=raw_content,
-            tables=tables
-        )
-
-    def _find_section_start(
-        self,
-        lines: List[str],
-        section_id: str
-    ) -> Optional[int]:
-        """查找章节开始位置"""
-        for idx, line in enumerate(lines):
-            # 匹配章节编号开头的行（允许行首有Markdown标题符号#）
-            match = re.match(rf'^\s*#+\s*{re.escape(section_id)}\s+(.+)', line)
-            if match:
-                logger.info(f"找到章节 {section_id} 在第 {idx + 1} 行")
-                return idx
-
-        return None
-
-    def _extract_title(self, line: str, section_id: str) -> str:
-        """从行中提取标题（去掉Markdown符号和章节编号）"""
-        # 去掉Markdown标题符号
-        line = re.sub(r'^\s*#+\s*', '', line)
-        # 去掉章节编号
-        title = re.sub(rf'^{re.escape(section_id)}\s+', '', line)
-        return title.strip()
+        return {
+            'section_id': section_id,
+            'title': section_title,
+            'tables': tables,
+            'categorized': categorized
+        }
 
     def _find_section_end(
         self,
-        lines: List[str],
+        paragraphs,
         start_idx: int,
         section_id: str
     ) -> int:
         """查找章节结束位置"""
-        # 计算当前章节级别
         current_level = len(section_id.split('.'))
 
-        # 从开始位置后查找
-        for idx in range(start_idx + 1, len(lines)):
-            line = lines[idx].strip()
+        for idx in range(start_idx + 1, len(paragraphs)):
+            para = paragraphs[idx]
+            match = self.section_pattern.match(para.text.strip())
 
-            # 检查是否是章节标题
-            match = self.section_pattern.match(line)
             if match:
-                next_section_id = match.group(0)
+                next_section_id = match.group(1)
                 next_level = len(next_section_id.split('.'))
 
-                # 如果是同级或更高级章节，则当前章节结束
                 if next_level <= current_level:
-                    logger.debug(
-                        f"章节 {section_id} 在第 {idx} 行结束 "
-                        f"(遇到章节 {next_section_id})"
-                    )
+                    logger.debug(f"章节 {section_id} 在第 {idx} 段结束")
                     return idx
 
-        # 到文件末尾
-        return len(lines)
+        return len(paragraphs)
 
-    def _extract_tables(self, lines: List[str]) -> List[TableInfo]:
-        """从章节内容中提取表格"""
-        tables = []
-
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-
-            # 检测表格开始（管道符表格）
-            if '|' in line and line.strip().startswith('|'):
-                table = self._parse_pipe_table(lines, i)
-                if table:
-                    tables.append(table)
-                    i += len(table.rows) + 2  # 跳过表格行
-                    continue
-
-            # 检测Markdown表格（有分隔线）
-            if i + 1 < len(lines):
-                next_line = lines[i + 1].strip()
-                if '|' in line and re.match(r'^[\|\s\-:]+$', next_line):
-                    table = self._parse_markdown_table(lines, i)
-                    if table:
-                        tables.append(table)
-                        i += len(table.rows) + 2
-                        continue
-
-            i += 1
-
-        return tables
-
-    def _parse_pipe_table(
+    def _extract_tables_from_doc(
         self,
-        lines: List[str],
-        start_idx: int
-    ) -> Optional[TableInfo]:
-        """解析管道符表格"""
-        table_lines = []
+        doc,
+        start_idx: int,
+        end_idx: int
+    ) -> List[Dict]:
+        """提取文档中的所有表格"""
+        tables_data = []
 
-        # 收集表格行
-        for i in range(start_idx, len(lines)):
-            line = lines[i]
-            if '|' in line:
-                table_lines.append(line)
-            else:
-                break
+        for table_idx, table in enumerate(doc.tables):
+            try:
+                # 解析表头
+                headers = []
+                for cell in table.rows[0].cells:
+                    headers.append(cell.text.strip())
 
-        if not table_lines:
-            return None
+                # 解析数据行
+                rows = []
+                for row in table.rows[1:]:
+                    row_data = []
+                    for cell in row.cells:
+                        row_data.append(cell.text.strip())
+                    rows.append(row_data)
 
-        # 解析表头
-        headers = [
-            cell.strip()
-            for cell in table_lines[0].split('|')
-            if cell.strip()
-        ]
+                tables_data.append({
+                    'index': table_idx,
+                    'headers': headers,
+                    'rows': rows
+                })
 
-        # 解析数据行（跳过分隔行）
-        rows = []
-        for line in table_lines[1:]:
-            cells = [
-                cell.strip()
-                for cell in line.split('|')
-                if cell.strip()
-            ]
+            except Exception as e:
+                logger.warning(f"解析表格 {table_idx} 失败: {e}")
 
-            # 跳过分隔行（只包含-、|、空格、:的行）
-            if cells and all(re.match(r'^[\-\s\:]*$', cell) for cell in cells):
-                continue
+        return tables_data
 
-            if cells:
-                rows.append(cells)
-
-        return TableInfo(
-            headers=headers,
-            rows=rows,
-            markdown='\n'.join(table_lines)
-        )
-
-    def _parse_markdown_table(
-        self,
-        lines: List[str],
-        start_idx: int
-    ) -> Optional[TableInfo]:
-        """解析Markdown表格"""
-        table_lines = [lines[start_idx]]  # 表头行
-
-        # 跳过分隔线
-        if start_idx + 1 < len(lines):
-            table_lines.append(lines[start_idx + 1])
-
-        # 收集数据行
-        for i in range(start_idx + 2, len(lines)):
-            line = lines[i]
-            if '|' in line:
-                table_lines.append(line)
-            else:
-                break
-
-        # 使用管道符表格的解析逻辑
-        return self._parse_pipe_table(table_lines, 0)
-
-    def to_dict(self, section_info: SectionInfo) -> Dict[str, Any]:
-        """将章节信息转换为字典"""
-        return {
-            'section_id': section_info.section_id,
-            'title': section_info.title,
-            'content': section_info.content,
-            'tables': [
-                {
-                    'headers': table.headers,
-                    'rows': table.rows,
-                    'row_count': len(table.rows),
-                    'column_count': len(table.headers)
-                }
-                for table in section_info.tables
-            ],
-            'table_count': len(section_info.tables)
+    def _categorize_items(self, tables: List[Dict]) -> Dict[str, List]:
+        """对表格内容进行分类"""
+        categorized = {
+            '删除': [],
+            '新增': [],
+            '变更': []
         }
 
-    def to_json(self, section_info: SectionInfo, indent: int = 2) -> str:
-        """将章节信息转换为JSON字符串"""
-        data = self.to_dict(section_info)
-        return json.dumps(data, ensure_ascii=False, indent=indent)
+        for table in tables:
+            headers = table['headers']
+            rows = table['rows']
+
+            # 查找类型列（可能的列名）
+            type_col_idx = self._find_type_column(headers)
+
+            if type_col_idx is not None:
+                for row in rows:
+                    if type_col_idx < len(row):
+                        item_type = row[type_col_idx]
+
+                        # 根据类型归类
+                        if any(keyword in item_type for keyword in ['删除', '移除', '废弃']):
+                            categorized['删除'].append(row)
+                        elif any(keyword in item_type for keyword in ['新增', '添加', '引入']):
+                            categorized['新增'].append(row)
+                        elif any(keyword in item_type for keyword in ['修改', '变更', '更新']):
+                            categorized['变更'].append(row)
+
+        return categorized
+
+    def _find_type_column(self, headers: List[str]) -> Optional[int]:
+        """查找类型/变更类型列的索引"""
+        keywords = ['类型', '变更类型', '分类', 'category', 'type']
+
+        for idx, header in enumerate(headers):
+            if any(keyword in header for keyword in keywords):
+                return idx
+
+        return None
+
+    def print_categorized(self, categorized: Dict[str, List]) -> None:
+        """打印分类结果"""
+        print("=" * 80)
+        print("差异分类结果")
+        print("=" * 80)
+
+        for category, items in categorized.items():
+            if items:
+                print(f"\n【{category}】共 {len(items)} 项")
+                print("-" * 80)
+
+                for i, item in enumerate(items, 1):
+                    # 将一行数据用 | 连接显示
+                    line = " | ".join(item)
+                    print(f"{i:2d}. {line}")
+
+        print("\n" + "=" * 80)
+        print(f"总计: 删除 {len(categorized['删除'])} 项, "
+              f"新增 {len(categorized['新增'])} 项, "
+              f"变更 {len(categorized['变更'])} 项")
+        print("=" * 80)
 
 
 def main():
@@ -297,11 +210,11 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='从文档中提取指定章节的信息'
+        description='从 Word 文档中提取指定章节并分类输出'
     )
     parser.add_argument(
         'file',
-        help='文档文件路径'
+        help='Word 文档路径 (.docx)'
     )
     parser.add_argument(
         'section',
@@ -309,7 +222,7 @@ def main():
     )
     parser.add_argument(
         '-o', '--output',
-        help='输出JSON文件路径'
+        help='输出到文本文件'
     )
     parser.add_argument(
         '-v', '--verbose',
@@ -323,30 +236,34 @@ def main():
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format='%(asctime)s - %(levelname)s - %(message)s'
     )
 
     # 提取章节
     extractor = SectionExtractor()
-    section_info = extractor.extract_from_file(args.file, args.section)
+    result = extractor.extract_from_file(args.file, args.section)
 
-    if section_info:
-        # 输出JSON
-        json_str = extractor.to_json(section_info)
-        print(json_str)
-
-        # 保存到文件
+    if result:
+        # 打印分类结果
         if args.output:
+            # 保存到文件
+            import io
+            from contextlib import redirect_stdout
+
             with open(args.output, 'w', encoding='utf-8') as f:
-                f.write(json_str)
-            print(f"\n结果已保存到: {args.output}", file=__import__('sys').stderr)
+                with io.StringIO() as buf, redirect_stdout(buf):
+                    extractor.print_categorized(result['categorized'])
+                    f.write(buf.getvalue())
+            print(f"\n结果已保存到: {args.output}")
+        else:
+            # 输出到终端
+            extractor.print_categorized(result['categorized'])
 
         return 0
     else:
-        print(f"错误: 未找到章节 {args.section}", file=__import__('sys').stderr)
+        print(f"错误: 未找到章节 {args.section}")
         return 1
 
 
 if __name__ == '__main__':
-    import sys
     sys.exit(main())
