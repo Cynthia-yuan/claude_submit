@@ -8,7 +8,12 @@
       "Bash(FLASK_APP=web/app.py python3 -c:*)",
       "Bash(FLASK_APP=web/app.py python3 -m flask run:*)",
       "Bash(curl:*)",
-      "Bash(git init:*)"
+      "Bash(git init:*)",
+      "Read(//Users/yuanlulu/.claude/skills/**)",
+      "Read(//Users/yuanlulu/.claude/**)",
+      "Bash(python:*)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)"
     ]
   }
 }
