@@ -101,8 +101,14 @@ class SectionExtractor:
                 next_section_id = match.group(1)
                 next_level = len(next_section_id.split('.'))
 
+                # 遇到同级或更高级章节 -> 停止
                 if next_level <= current_level:
-                    logger.debug(f"章节 {section_id} 在第 {idx} 段结束")
+                    logger.debug(f"章节 {section_id} 在第 {idx} 段结束 (遇到同级/上级章节 {next_section_id})")
+                    return idx
+
+                # 遇到直接子章节 -> 也停止（不包含子章节的内容）
+                if next_level == current_level + 1:
+                    logger.debug(f"章节 {section_id} 在第 {idx} 段结束 (遇到子章节 {next_section_id})")
                     return idx
 
         return len(paragraphs)
@@ -113,33 +119,67 @@ class SectionExtractor:
         start_idx: int,
         end_idx: int
     ) -> List[Dict]:
-        """提取文档中的所有表格"""
+        """提取指定段落范围内的表格"""
         tables_data = []
 
-        for table_idx, table in enumerate(doc.tables):
-            try:
-                # 解析表头
-                headers = []
-                for cell in table.rows[0].cells:
-                    headers.append(cell.text.strip())
+        # 获取文档中所有元素（段落和表格）的顺序
+        from docx.oxml.table import CT_Tbl
+        from docx.oxml.text.paragraph import CT_P
 
-                # 解析数据行
-                rows = []
-                for row in table.rows[1:]:
-                    row_data = []
-                    for cell in row.cells:
-                        row_data.append(cell.text.strip())
-                    rows.append(row_data)
+        elements = []
+        for element in doc.element.body:
+            if isinstance(element, CT_P):
+                elements.append(('para', element))
+            elif isinstance(element, CT_Tbl):
+                elements.append(('table', element))
 
-                tables_data.append({
-                    'index': table_idx,
-                    'headers': headers,
-                    'rows': rows
-                })
+        # 遍历元素，找到在范围内的表格
+        para_index = 0  # 当前处理的段落索引（与 enumerate(doc.paragraphs) 一致）
+        table_index = 0  # 当前处理的表格索引（与 enumerate(doc.tables) 一致）
 
-            except Exception as e:
-                logger.warning(f"解析表格 {table_idx} 失败: {e}")
+        logger.info(f"开始提取，范围: 段落索引 {start_idx} 到 {end_idx-1}")
 
+        for elem_type, element in elements:
+            if elem_type == 'para':
+                # 段落元素，递增索引
+                para_index += 1
+
+            elif elem_type == 'table':
+                # 表格元素：表格属于它之前的段落所在的章节
+                # 所以检查 para_index - 1 是否在范围内
+                table_section = para_index - 1
+                if start_idx <= table_section < end_idx:
+                    # 提取表格
+                    try:
+                        table = doc.tables[table_index]
+
+                        # 解析表头
+                        headers = []
+                        for cell in table.rows[0].cells:
+                            headers.append(cell.text.strip())
+
+                        # 解析数据行
+                        rows = []
+                        for row in table.rows[1:]:
+                            row_data = []
+                            for cell in row.cells:
+                                row_data.append(cell.text.strip())
+                            rows.append(row_data)
+
+                        tables_data.append({
+                            'index': len(tables_data),
+                            'headers': headers,
+                            'rows': rows
+                        })
+
+                        logger.debug(f"提取表格 {len(tables_data)}（属于段落{table_section}）")
+
+                    except Exception as e:
+                        logger.warning(f"解析表格失败: {e}")
+
+                table_index += 1
+
+        logger.info(f"从章节范围内提取了 {len(tables_data)} 个表格")
         return tables_data
 
     def _categorize_items(self, tables: List[Dict]) -> Dict[str, List]:
