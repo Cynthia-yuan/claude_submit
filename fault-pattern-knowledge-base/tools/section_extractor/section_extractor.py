@@ -134,20 +134,24 @@ class SectionExtractor:
                 elements.append(('table', element))
 
         # 遍历元素，找到在范围内的表格
-        para_index = 0  # 当前处理的段落索引（与 enumerate(doc.paragraphs) 一致）
+        para_count = 0  # 已遇到的段落数量（对应 doc.paragraphs 的索引）
         table_index = 0  # 当前处理的表格索引（与 enumerate(doc.tables) 一致）
 
         logger.info(f"开始提取，范围: 段落索引 {start_idx} 到 {end_idx-1}")
 
         for elem_type, element in elements:
             if elem_type == 'para':
-                # 段落元素，递增索引（表示已经处理了这个段落）
-                para_index += 1
+                # 段落元素：当前段落对应 doc.paragraphs[para_count]
+                # 处理完后再递增
+                logger.debug(f"处理段落 {para_count}")
+                para_count += 1
 
             elif elem_type == 'table':
-                # 表格元素：表格位于段落之间，其位置等于前面段落的数量
-                # 如果表格在段落4之后，那它的位置就是4
-                table_position = para_index - 1
+                # 表格元素：表格在 doc.element.body 中的位置
+                # 它位于段落 para_count - 1 和段落 para_count 之间
+                # 也就是说：表格在段落 para_count - 1 "之后"
+                # 它的段落位置应该是 para_count - 1
+                table_position = para_count - 1
                 logger.debug(f"表格{table_index}在段落{table_position}之后，范围检查: {start_idx} <= {table_position} < {end_idx}")
 
                 if start_idx <= table_position < end_idx:
@@ -286,6 +290,26 @@ def main():
     result = extractor.extract_from_file(args.file, args.section)
 
     if result:
+        # 检查是否提取到表格
+        total_items = sum(len(items) for items in result['categorized'].values())
+
+        if total_items == 0:
+            print(f"\n⚠️  警告: 章节 {args.section} 中未找到任何差异项")
+            print(f"\n诊断信息:")
+            print(f"  章节标题: {result['title']}")
+            print(f"  表格数量: {len(result['tables'])}")
+            print(f"\n可能的原因:")
+            print(f"  1. 表格中没有'类型'或'变更类型'列")
+            print(f"  2. 类型列中的内容不匹配关键词（删除/新增/变更）")
+            print(f"  3. 使用 -v 参数查看详细日志以诊断问题")
+            if args.verbose:
+                print(f"\n详细表格信息:")
+                for i, table in enumerate(result['tables']):
+                    print(f"  表格 {i+1} 表头: {table['headers']}")
+                    if table['rows']:
+                        print(f"    第一行数据: {table['rows'][0]}")
+            return 0
+
         # 打印分类结果
         if args.output:
             # 保存到文件
