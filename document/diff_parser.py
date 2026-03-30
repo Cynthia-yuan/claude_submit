@@ -81,13 +81,15 @@ def detect_file_encoding(file_path):
 class DiffParser:
     """HTML差异文档解析器"""
 
-    def __init__(self, html_file, output_file=None):
+    def __init__(self, html_file, output_file=None, include_chapters=None, skip_chapters=None):
         """
         初始化解析器
 
         Args:
             html_file: HTML文件路径
             output_file: 输出Excel文件路径
+            include_chapters: 包含的章节列表，如 ['5', '5.1', '5.2']，None表示全部
+            skip_chapters: 跳过的章节列表，如 ['1', '2']，None表示不跳过
         """
         self.html_file = html_file
         self.output_file = output_file or os.path.join(
@@ -97,6 +99,95 @@ class DiffParser:
         )
         self.changes = []
         self.current_chapter = "未知章节"
+        self.include_chapters = self._parse_chapters(include_chapters)
+        self.skip_chapters = self._parse_chapters(skip_chapters)
+
+        # 打印配置信息
+        if self.include_chapters:
+            print(f"只检索章节: {self.include_chapters}")
+        if self.skip_chapters:
+            print(f"跳过章节: {self.skip_chapters}")
+
+    def _parse_chapters(self, chapters_str):
+        """
+        解析章节字符串
+
+        Args:
+            chapters_str: 章节字符串，如 "5,5.1,5.2" 或 ['5', '5.1']
+
+        Returns:
+            章节集合
+        """
+        if not chapters_str:
+            return None
+
+        if isinstance(chapters_str, str):
+            # 支持逗号、空格、分号分隔
+            parts = re.split(r'[,;，\s]+', chapters_str.strip())
+            return set(p for p in parts if p)
+        elif isinstance(chapters_str, list):
+            return set(chapters_str)
+        return None
+
+    def _should_include_chapter(self, chapter_name):
+        """
+        判断章节是否应该被包含
+
+        Args:
+            chapter_name: 章节名称
+
+        Returns:
+            True表示包含，False表示跳过
+        """
+        # 提取章节编号（如 "第5章 交付件差异" -> "5"）
+        chapter_num = self._extract_chapter_number(chapter_name)
+
+        # 如果指定了包含列表，只处理列表中的章节
+        if self.include_chapters:
+            # 检查章节编号是否在包含列表中
+            for include in self.include_chapters:
+                if chapter_num.startswith(include) or include in chapter_name:
+                    # 再检查是否在跳过列表中
+                    if self.skip_chapters:
+                        for skip in self.skip_chapters:
+                            if chapter_num.startswith(skip) or skip in chapter_name:
+                                return False
+                    return True
+            return False
+
+        # 如果没有指定包含列表，检查是否在跳过列表中
+        if self.skip_chapters:
+            for skip in self.skip_chapters:
+                if chapter_num.startswith(skip) or skip in chapter_name:
+                    return False
+
+        return True
+
+    def _extract_chapter_number(self, chapter_name):
+        """
+        从章节名称中提取章节编号
+
+        Args:
+            chapter_name: 章节名称，如 "第5章 交付件差异" 或 "5.1 安装包变更"
+
+        Returns:
+            章节编号，如 "5" 或 "5.1"
+        """
+        if not chapter_name:
+            return ""
+
+        # 匹配 "第X章" 格式
+        match = re.search(r'第(\d+(\.\d+)*)章', chapter_name)
+        if match:
+            return match.group(1)
+
+        # 匹配 "X.X" 或 "X" 开头的格式
+        match = re.match(r'^(\d+(\.\d+)*)(\.|\s|、|$)', chapter_name)
+        if match:
+            return match.group(1)
+
+        # 返回原始名称（用于模糊匹配）
+        return chapter_name
 
     def load_html(self):
         """加载HTML文件"""
@@ -253,6 +344,13 @@ class DiffParser:
 
         # 获取表格所在章节
         table_chapter = self.find_chapter_for_element(table, soup)
+
+        # 检查章节是否应该被包含
+        if not self._should_include_chapter(table_chapter):
+            print(f"  跳过章节: {table_chapter}")
+            return
+
+        print(f"  处理章节: {table_chapter}")
 
         # 解析数据行
         for row in rows[1:]:
@@ -557,14 +655,41 @@ class DiffParser:
 
 def main():
     """主函数"""
-    parser = argparse.ArgumentParser(description='HTML差异文档解析器')
+    parser = argparse.ArgumentParser(
+        description='HTML差异文档解析器',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  # 解析所有章节
+  python diff_parser.py file.html
+
+  # 只解析第5章
+  python diff_parser.py file.html --chapters 5
+
+  # 只解析第5.1和5.2节
+  python diff_parser.py file.html --chapters 5.1,5.2
+
+  # 跳过第1和第2章
+  python diff_parser.py file.html --skip 1,2
+
+  # 只解析第5章，跳过5.1节
+  python diff_parser.py file.html --chapters 5 --skip 5.1
+        """
+    )
     parser.add_argument('html_file', help='HTML差异文档路径')
     parser.add_argument('-o', '--output', help='输出Excel文件路径')
+    parser.add_argument('-c', '--chapters', help='只解析指定章节，如: 5 或 5.1,5.2')
+    parser.add_argument('-s', '--skip', help='跳过指定章节，如: 1,2 或 5.1')
 
     args = parser.parse_args()
 
     # 执行解析
-    diff_parser = DiffParser(args.html_file, args.output)
+    diff_parser = DiffParser(
+        args.html_file,
+        args.output,
+        include_chapters=args.chapters,
+        skip_chapters=args.skip
+    )
     diff_parser.parse()
 
 
