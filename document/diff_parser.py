@@ -25,35 +25,51 @@ def detect_file_encoding(file_path):
     Returns:
         检测到的编码名称
     """
-    # 常见的中文编码
-    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'big5', 'utf-16', 'utf-16-le', 'utf-16-be', 'latin1']
+    # 常见的中文编码（gb18030放在前面，因为它是gb2312/gbk的超集，兼容性更好）
+    encodings = ['utf-8', 'gb18030', 'gbk', 'gb2312', 'big5', 'utf-16', 'utf-16-le', 'utf-16-be', 'latin1']
 
     # 先尝试用chardet检测
+    detected_encoding = None
     try:
         import chardet
         with open(file_path, 'rb') as f:
-            raw_data = f.read(10000)  # 读取前10000字节用于检测
+            raw_data = f.read(50000)  # 读取更多字节提高检测准确性
         result = chardet.detect(raw_data)
         if result and result['encoding']:
-            detected = result['encoding'].lower()
+            detected_encoding = result['encoding'].lower()
             confidence = result.get('confidence', 0)
-            print(f"检测到文件编码: {detected} (置信度: {confidence:.2f})")
-            # 如果置信度较高，直接使用
-            if confidence > 0.7:
-                return detected
+            print(f"检测到文件编码: {detected_encoding} (置信度: {confidence:.2f})")
+
+            # 将chardet检测到的编码映射到实际可用的编码
+            encoding_map = {
+                'gb2312': 'gb18030',  # gb18030兼容gb2312且更健壮
+                'gbk': 'gb18030',     # gb18030兼容gbk且更健壮
+                'big5': 'big5',
+                'utf-8': 'utf-8',
+                'utf-16': 'utf-16',
+                'utf-16-le': 'utf-16-le',
+                'utf-16-be': 'utf-16-be'
+            }
+            mapped_encoding = encoding_map.get(detected_encoding, detected_encoding)
+            if mapped_encoding != detected_encoding:
+                print(f"映射编码: {detected_encoding} -> {mapped_encoding}")
+
+            # 优先使用检测到的编码
+            if confidence > 0.5:
+                encodings.insert(0, mapped_encoding)
     except ImportError:
         print("提示: 安装chardet可获得更准确的编码检测 (pip install chardet)")
     except Exception as e:
         print(f"编码检测失败: {e}")
 
-    # 逐个尝试常见编码
+    # 逐个尝试常见编码，使用容错模式
     for encoding in encodings:
         try:
-            with open(file_path, 'r', encoding=encoding) as f:
+            with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
                 f.read(1000)  # 尝试读取一小部分
-            print(f"使用编码: {encoding}")
+            print(f"使用编码: {encoding} (容错模式)")
             return encoding
-        except (UnicodeDecodeError, UnicodeError):
+        except Exception:
             continue
 
     # 如果都失败，使用latin1（它不会抛出解码错误）
@@ -86,9 +102,11 @@ class DiffParser:
             # 自动检测文件编码
             encoding = detect_file_encoding(self.html_file)
 
-            with open(self.html_file, 'r', encoding=encoding) as f:
+            # 使用容错模式读取文件，忽略无法解码的字节
+            with open(self.html_file, 'r', encoding=encoding, errors='ignore') as f:
                 content = f.read()
 
+            print(f"成功读取文件 ({len(content)} 字符)")
             return BeautifulSoup(content, 'html.parser')
         except FileNotFoundError:
             print(f"错误: 文件不存在 - {self.html_file}")
