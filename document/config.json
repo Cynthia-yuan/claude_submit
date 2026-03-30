@@ -1,0 +1,37 @@
+{
+  "env_old": {
+    "host": "old-server.example.com",
+    "port": 22,
+    "username": "your_username",
+    "password": "your_password_or_leave_empty_if_using_key",
+    "key_file": "/path/to/private/key"
+  },
+  "env_new": {
+    "host": "new-server.example.com",
+    "port": 22,
+    "username": "your_username",
+    "password": "your_password_or_leave_empty_if_using_key",
+    "key_file": "/path/to/private/key"
+  },
+  "validation_rules": {
+    "file_check_paths": [
+      "/opt/packages",
+      "/etc/app",
+      "/opt/scripts"
+    ],
+    "config_files": [
+      "/etc/app/application.yml"
+    ],
+    "check_commands": {
+      "jdk_version": "java -version 2>&1",
+      "mysql_version": "mysql --version",
+      "redis_version": "redis-server --version"
+    }
+  },
+  "notes": [
+    "使用SSH密码认证时，填写password字段",
+    "使用SSH密钥认证时，填写key_file字段（推荐）",
+    "两者都填写时，优先使用密钥认证",
+    "确保防火墙允许SSH连接（默认端口22）"
+  ]
+}
