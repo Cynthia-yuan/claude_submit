@@ -1,0 +1,10 @@
+=== KCSAN Report Summary ===
+
+Date: 2026-03-30 17:21:53
+
+[1] tick_periodic / tick_setup_periodic
+  Address: 0xffffffff8260a280
+  Access: WRITE 0xffffffff8260a280 (8)
+  Access: READ 0xffffffff8260a280 (8)
+
+Total: 1 reports

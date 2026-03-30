@@ -1,0 +1,6 @@
+# 建议的内核命令行参数
+# 添加到 GRUB_CMDLINE_LINUX 或直接在启动时指定
+
+# 从白名单生成的 skip_watch 参数
+# kcsan.skip_watch=
+kcsan.skip_watch=another_func,test_func

@@ -1,0 +1,40 @@
+==================================================================
+BUG: KCSAN: data-race in tick_periodic / tick_setup_periodic
+
+write to 0xffffffff8260a280 of 8 bytes by interrupt on cpu 0:
+ tick_periodic+0x35/0x90
+ tick_handle_periodic+0x3d/0xb0
+ __sysvec_apic_timer_interrupt+0x72/0x180
+ sysvec_apic_timer_interrupt+0x9d/0xc0
+ asm_sysvec_apic_timer_interrupt+0x12/0x20
+
+read to 0xffffffff8260a280 of 8 bytes by task 1 on cpu 1:
+ tick_setup_periodic+0x52/0x90
+ tick_set_periodic_handler+0x4d/0x60
+ clockevents_switch_state+0x8b/0x120
+ tick_check_new_device+0x21c/0x250
+ clockevents_register_device+0x9d/0x130
+
+Report 1 generated at: Fri Mar 27 10:20:15 2026
+==================================================================
+
+... (其他系统日志) ...
+
+==================================================================
+BUG: KCSAN: data-race in tick_periodic / clock_settime
+
+write to 0xffffffff8260a280 of 8 bytes by interrupt on cpu 2:
+ tick_periodic+0x35/0x90
+ tick_handle_periodic+0x3d/0xb0
+ __sysvec_apic_timer_interrupt+0x72/0x180
+ ...
+
+read to 0xffffffff8260a280 of 8 bytes by task 4521 on cpu 3:
+ ktime_get_jiffies_64+0x15/0x40
+ clock_settime+0x82/0xf0
+ __x64_sys_clock_settime+0x38/0x50
+ do_syscall_64+0x42/0x90
+ entry_SYSCALL_64_after_hwframe+0x44/0xae
+
+Report 2 generated at: Fri Mar 27 10:22:30 2026
+==================================================================

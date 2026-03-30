@@ -1,0 +1,19 @@
+# KCSAN 白名单配置
+# 格式: function1 / function2 # 原因
+#
+# 匹配类型:
+# 1. 精确函数对: tick_periodic / clock_settime # 原因
+# 2. 通配符: tick_* / clock_* # 原因
+# 3. 地址: ADDR:0xffffffff8260a280 # 原因
+#
+# 示例:
+
+# 时间子系统 - 已知良性竞争
+# tick_periodic / clock_settime # 时间更新竞争，实际不会造成问题
+
+# 通配符示例
+# tick_* / clock_* # 时间子系统相关
+
+# 地址白名单
+# ADDR:0xffffffff8260a280 # 时钟设备寄存器
+test_func / another_func # 测试条目

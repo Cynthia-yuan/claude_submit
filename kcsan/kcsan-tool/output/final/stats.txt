@@ -1,0 +1,16 @@
+=== KCSAN Report Statistics ===
+
+Generated: 2026-03-30 17:21:53
+Input file: output/final/reports.txt
+
+Total reports: 1
+
+=== Top Function Pairs ===
+
+=== Top Addresses ===
+
+=== Access Types ===
+1
+Write operations: 1
+Read operations: 1
+
