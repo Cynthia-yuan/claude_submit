@@ -15,6 +15,52 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
+def detect_file_encoding(file_path):
+    """
+    检测文件编码
+
+    Args:
+        file_path: 文件路径
+
+    Returns:
+        检测到的编码名称
+    """
+    # 常见的中文编码
+    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'big5', 'utf-16', 'utf-16-le', 'utf-16-be', 'latin1']
+
+    # 先尝试用chardet检测
+    try:
+        import chardet
+        with open(file_path, 'rb') as f:
+            raw_data = f.read(10000)  # 读取前10000字节用于检测
+        result = chardet.detect(raw_data)
+        if result and result['encoding']:
+            detected = result['encoding'].lower()
+            confidence = result.get('confidence', 0)
+            print(f"检测到文件编码: {detected} (置信度: {confidence:.2f})")
+            # 如果置信度较高，直接使用
+            if confidence > 0.7:
+                return detected
+    except ImportError:
+        print("提示: 安装chardet可获得更准确的编码检测 (pip install chardet)")
+    except Exception as e:
+        print(f"编码检测失败: {e}")
+
+    # 逐个尝试常见编码
+    for encoding in encodings:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                f.read(1000)  # 尝试读取一小部分
+            print(f"使用编码: {encoding}")
+            return encoding
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+
+    # 如果都失败，使用latin1（它不会抛出解码错误）
+    print("警告: 无法确定编码，使用 latin1（可能导致乱码）")
+    return 'latin1'
+
+
 class DiffParser:
     """HTML差异文档解析器"""
 
@@ -37,8 +83,13 @@ class DiffParser:
     def load_html(self):
         """加载HTML文件"""
         try:
-            with open(self.html_file, 'r', encoding='utf-8') as f:
-                return BeautifulSoup(f.read(), 'html.parser')
+            # 自动检测文件编码
+            encoding = detect_file_encoding(self.html_file)
+
+            with open(self.html_file, 'r', encoding=encoding) as f:
+                content = f.read()
+
+            return BeautifulSoup(content, 'html.parser')
         except FileNotFoundError:
             print(f"错误: 文件不存在 - {self.html_file}")
             sys.exit(1)
