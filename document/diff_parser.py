@@ -148,28 +148,177 @@ class DiffParser:
 
         return ' > '.join(path_parts) if path_parts else '未知章节'
 
+    def normalize_change_type(self, change_type_text):
+        """
+        标准化变更类型文本
+
+        Args:
+            change_type_text: 原始变更类型文本
+
+        Returns:
+            标准化的变更类型：删除/新增/修改
+        """
+        if not change_type_text:
+            return '未知'
+
+        text = change_type_text.strip().lower()
+
+        # 删除类型关键词
+        delete_keywords = ['删除', '减少', '移除', '废弃', '去掉', '删除掉', 'del', 'delete', 'remove']
+        # 新增类型关键词
+        add_keywords = ['新增', '增加', '添加', '新增了', '新增了', 'add', 'new', 'create']
+        # 修改类型关键词
+        modify_keywords = ['修改', '变更', '更新', '改变', '调整', 'modify', 'change', 'update']
+
+        for keyword in delete_keywords:
+            if keyword in text:
+                return '删除'
+
+        for keyword in add_keywords:
+            if keyword in text:
+                return '新增'
+
+        for keyword in modify_keywords:
+            if keyword in text:
+                return '修改'
+
+        return '未知'
+
+    def extract_changes_from_table(self, table, soup):
+        """
+        从表格中提取变更信息
+
+        Args:
+            table: BeautifulSoup表格元素
+            soup: 完整的BeautifulSoup对象
+        """
+        rows = table.find_all('tr')
+        if not rows:
+            return
+
+        # 解析表头，确定列索引
+        header_row = rows[0]
+        headers = [th.get_text(strip=True) for th in header_row.find_all(['th', 'td'])]
+
+        # 查找关键列的索引
+        col_indices = {
+            '编号': None,
+            '接口名称': None,
+            '变更类型': None,
+            '变更描述': None,
+            '影响说明': None,
+            '描述': None,
+            '说明': None
+        }
+
+        for i, header in enumerate(headers):
+            for key in col_indices:
+                if key in header:
+                    col_indices[key] = i
+                    break
+
+        # 如果没有找到标准列，尝试通过位置判断
+        if col_indices['变更类型'] is None:
+            # 假设变更类型在第3列（索引2）
+            col_indices['变更类型'] = 2
+
+        print(f"  解析表格，表头: {headers}")
+
+        # 解析数据行
+        for row in rows[1:]:
+            cells = row.find_all(['td', 'th'])
+            if not cells:
+                continue
+
+            # 提取各列数据
+            values = [cell.get_text(strip=True) for cell in cells]
+
+            # 获取变更类型
+            change_type_col = col_indices['变更类型']
+            if change_type_col is not None and change_type_col < len(values):
+                change_type_raw = values[change_type_col]
+                change_type = self.normalize_change_type(change_type_raw)
+            else:
+                continue
+
+            # 如果变更类型未知，跳过
+            if change_type == '未知':
+                continue
+
+            # 构建描述信息
+            description_parts = []
+
+            # 编号
+            if col_indices['编号'] is not None and col_indices['编号'] < len(values):
+                num = values[col_indices['编号']]
+                if num:
+                    description_parts.append(f"编号:{num}")
+
+            # 接口名称/名称
+            for name_key in ['接口名称', '名称']:
+                if col_indices.get(name_key) is not None and col_indices[name_key] < len(values):
+                    name = values[col_indices[name_key]]
+                    if name:
+                        description_parts.append(f"名称:{name}")
+                        break
+
+            # 变更描述
+            for desc_key in ['变更描述', '描述', '说明']:
+                if col_indices.get(desc_key) is not None and col_indices[desc_key] < len(values):
+                    desc = values[col_indices[desc_key]]
+                    if desc:
+                        description_parts.append(f"描述:{desc}")
+                        break
+
+            # 影响说明
+            if col_indices.get('影响说明') is not None and col_indices['影响说明'] < len(values):
+                impact = values[col_indices['影响说明']]
+                if impact:
+                    description_parts.append(f"影响:{impact}")
+
+            # 如果没有提取到任何信息，尝试使用所有非空列
+            if not description_parts:
+                for i, val in enumerate(values):
+                    if val and i != change_type_col:
+                        description_parts.append(val)
+
+            description = ' | '.join(description_parts) if description_parts else change_type_raw
+
+            # 获取章节路径
+            chapter_path = self.get_chapter_path(table)
+
+            self.changes.append({
+                'chapter': chapter_path,
+                'change_type': change_type,
+                'description': description,
+                'change_type_raw': change_type_raw,
+                'verified': '待验证',
+                'remark': ''
+            })
+
     def extract_changes(self, soup):
         """
-        提取所有带data-change属性的元素
+        提取所有变更信息
 
         Args:
             soup: BeautifulSoup对象
         """
-        # 查找所有带data-change属性的元素
+        print("正在查找变更信息...")
+
+        # 方法1: 查找所有带data-change属性的元素
         change_elements = soup.find_all(attrs={'data-change': True})
+        if change_elements:
+            print(f"  找到 {len(change_elements)} 个带data-change属性的元素")
 
         for elem in change_elements:
             change_type = elem.get('data-change')
             text = elem.get_text(strip=True)
 
-            # 跳过空内容
             if not text:
                 continue
 
-            # 获取章节路径
             chapter_path = self.get_chapter_path(elem)
 
-            # 标准化变更类型
             change_type_map = {
                 'deleted': '删除',
                 'added': '新增',
@@ -186,15 +335,17 @@ class DiffParser:
                 'remark': ''
             })
 
-        # 同时查找表格中的变更标记（使用CSS类）
+        # 方法2: 查找表格中的变更标记（使用CSS类）
         for tag_class, change_type in [
             ('tag-deleted', '删除'),
             ('tag-added', '新增'),
             ('tag-modified', '修改')
         ]:
             tags = soup.find_all(class_=tag_class)
+            if tags:
+                print(f"  找到 {len(tags)} 个带{tag_class}类的元素")
+
             for tag in tags:
-                # 获取所在行
                 row = tag.find_parent('tr')
                 if row:
                     cells = row.find_all('td')
@@ -215,6 +366,19 @@ class DiffParser:
                             'verified': '待验证',
                             'remark': ''
                         })
+
+        # 方法3: 查找包含变更类型关键词的表格
+        tables = soup.find_all('table')
+        print(f"  共找到 {len(tables)} 个表格")
+
+        for table in tables:
+            # 检查表格是否包含变更相关的表头
+            table_text = table.get_text()
+            change_keywords = ['变更类型', '变更', '删除', '新增', '修改', '接口', '目录']
+
+            # 如果表格包含变更相关关键词，尝试解析
+            if any(keyword in table_text for keyword in change_keywords):
+                self.extract_changes_from_table(table, soup)
 
     def export_to_excel(self):
         """将变更信息导出到Excel"""
