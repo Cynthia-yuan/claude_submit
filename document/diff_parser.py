@@ -7,9 +7,10 @@ HTML差异文档解析器
 
 import os
 import sys
+import re
 import argparse
 from datetime import datetime
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -95,6 +96,7 @@ class DiffParser:
             'diff_report.xlsx'
         )
         self.changes = []
+        self.current_chapter = "未知章节"
 
     def load_html(self):
         """加载HTML文件"""
@@ -115,38 +117,59 @@ class DiffParser:
             print(f"错误: 加载HTML文件失败 - {e}")
             sys.exit(1)
 
-    def get_chapter_path(self, element):
+    def find_chapter_for_element(self, element, soup):
         """
-        获取元素所在章节的路径
+        查找元素所在章节
 
         Args:
             element: BeautifulSoup元素
+            soup: 完整的BeautifulSoup对象
 
         Returns:
-            章节路径字符串，如 "5.1 交付件差异 > 5.1.1 安装包变更"
+            章节名称
         """
-        path_parts = []
+        # 向上查找标题元素
         current = element
+        last_heading = None
 
-        # 向上查找所有标题元素
-        while current:
+        # 向上遍历DOM树
+        for _ in range(20):  # 限制遍历层级
+            if current is None:
+                break
+
+            # 查找前面的兄弟元素中的标题
+            prev = current.previous_sibling
+            while prev:
+                if prev.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p']:
+                    text = prev.get_text(strip=True)
+                    # 检查是否是章节标题（包含数字或特定格式）
+                    if text and (re.match(r'^\d+[\.、第]', text) or '章' in text or '节' in text):
+                        return text
+                prev = prev.previous_sibling
+
+            # 检查当前元素本身
             if current.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                # 提取章节编号和标题
                 text = current.get_text(strip=True)
-                # 移除标签
-                text = text.replace('[新增]', '').replace('[删除]', '').replace('[修改]', '')
-                text = text.replace('', '').replace('', '').replace('', '')
-                path_parts.append(text)
+                if text:
+                    return text
+
+            # 向父元素查找
             current = current.parent
 
-        # 反转路径（从根到叶）
-        path_parts.reverse()
+        # 如果向上查找失败，尝试在整个文档中查找最近的标题
+        # 获取元素在文档中的位置
+        element_index = list(soup.descendants).index(element) if element in list(soup.descendants) else 0
 
-        # 只取最后两级章节路径
-        if len(path_parts) > 2:
-            path_parts = path_parts[-2:]
+        # 查找元素之前的所有标题
+        all_headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+        for heading in reversed(all_headings):
+            heading_index = list(soup.descendants).index(heading) if heading in list(soup.descendants) else 0
+            if heading_index < element_index:
+                text = heading.get_text(strip=True)
+                if text:
+                    return text
 
-        return ' > '.join(path_parts) if path_parts else '未知章节'
+        return "未知章节"
 
     def normalize_change_type(self, change_type_text):
         """
@@ -166,7 +189,7 @@ class DiffParser:
         # 删除类型关键词
         delete_keywords = ['删除', '减少', '移除', '废弃', '去掉', '删除掉', 'del', 'delete', 'remove']
         # 新增类型关键词
-        add_keywords = ['新增', '增加', '添加', '新增了', '新增了', 'add', 'new', 'create']
+        add_keywords = ['新增', '增加', '添加', '新增了', 'add', 'new', 'create']
         # 修改类型关键词
         modify_keywords = ['修改', '变更', '更新', '改变', '调整', 'modify', 'change', 'update']
 
@@ -193,7 +216,7 @@ class DiffParser:
             soup: 完整的BeautifulSoup对象
         """
         rows = table.find_all('tr')
-        if not rows:
+        if not rows or len(rows) < 2:
             return
 
         # 解析表头，确定列索引
@@ -204,25 +227,32 @@ class DiffParser:
         col_indices = {
             '编号': None,
             '接口名称': None,
+            '名称': None,
             '变更类型': None,
             '变更描述': None,
             '影响说明': None,
             '描述': None,
-            '说明': None
+            '说明': None,
+            '路径': None
         }
 
         for i, header in enumerate(headers):
-            for key in col_indices:
-                if key in header:
+            for key in list(col_indices.keys()):
+                if key in header or header in key:
                     col_indices[key] = i
-                    break
+                    # 找到后移除，避免重复匹配
+                    if key in col_indices:
+                        continue
 
-        # 如果没有找到标准列，尝试通过位置判断
+        # 如果没有找到变更类型列，打印警告
         if col_indices['变更类型'] is None:
-            # 假设变更类型在第3列（索引2）
-            col_indices['变更类型'] = 2
+            print(f"  警告: 表格中未找到'变更类型'列，表头: {headers}")
+            return
 
         print(f"  解析表格，表头: {headers}")
+
+        # 获取表格所在章节
+        table_chapter = self.find_chapter_for_element(table, soup)
 
         # 解析数据行
         for row in rows[1:]:
@@ -245,51 +275,42 @@ class DiffParser:
             if change_type == '未知':
                 continue
 
-            # 构建描述信息
-            description_parts = []
-
-            # 编号
-            if col_indices['编号'] is not None and col_indices['编号'] < len(values):
-                num = values[col_indices['编号']]
-                if num:
-                    description_parts.append(f"编号:{num}")
-
-            # 接口名称/名称
+            # 提取变更项名称（接口名称/名称）
+            item_name = ''
             for name_key in ['接口名称', '名称']:
                 if col_indices.get(name_key) is not None and col_indices[name_key] < len(values):
                     name = values[col_indices[name_key]]
                     if name:
-                        description_parts.append(f"名称:{name}")
+                        item_name = name
                         break
 
-            # 变更描述
-            for desc_key in ['变更描述', '描述', '说明']:
+            # 如果没有找到名称，尝试其他列
+            if not item_name:
+                # 尝试获取变更类型列之外的第一列非空数据
+                for i, val in enumerate(values):
+                    if i != change_type_col and val and col_indices['编号'] != i:
+                        item_name = val
+                        break
+
+            # 提取描述信息
+            description = ''
+            for desc_key in ['变更描述', '描述', '影响说明', '说明']:
                 if col_indices.get(desc_key) is not None and col_indices[desc_key] < len(values):
                     desc = values[col_indices[desc_key]]
                     if desc:
-                        description_parts.append(f"描述:{desc}")
+                        description = desc
                         break
 
-            # 影响说明
-            if col_indices.get('影响说明') is not None and col_indices['影响说明'] < len(values):
-                impact = values[col_indices['影响说明']]
-                if impact:
-                    description_parts.append(f"影响:{impact}")
-
-            # 如果没有提取到任何信息，尝试使用所有非空列
-            if not description_parts:
-                for i, val in enumerate(values):
-                    if val and i != change_type_col:
-                        description_parts.append(val)
-
-            description = ' | '.join(description_parts) if description_parts else change_type_raw
-
-            # 获取章节路径
-            chapter_path = self.get_chapter_path(table)
+            # 如果没有找到描述，尝试使用路径列
+            if not description and col_indices.get('路径') is not None and col_indices['路径'] < len(values):
+                path = values[col_indices['路径']]
+                if path:
+                    description = path
 
             self.changes.append({
-                'chapter': chapter_path,
+                'chapter': table_chapter,
                 'change_type': change_type,
+                'item_name': item_name,
                 'description': description,
                 'change_type_raw': change_type_raw,
                 'verified': '待验证',
@@ -305,6 +326,10 @@ class DiffParser:
         """
         print("正在查找变更信息...")
 
+        # 首先查找所有标题，记录章节信息
+        all_headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+        print(f"  找到 {len(all_headings)} 个章节标题")
+
         # 方法1: 查找所有带data-change属性的元素
         change_elements = soup.find_all(attrs={'data-change': True})
         if change_elements:
@@ -317,7 +342,7 @@ class DiffParser:
             if not text:
                 continue
 
-            chapter_path = self.get_chapter_path(elem)
+            chapter_path = self.find_chapter_for_element(elem, soup)
 
             change_type_map = {
                 'deleted': '删除',
@@ -329,6 +354,7 @@ class DiffParser:
             self.changes.append({
                 'chapter': chapter_path,
                 'change_type': change_type_cn,
+                'item_name': '',
                 'description': text,
                 'change_type_raw': change_type,
                 'verified': '待验证',
@@ -352,16 +378,13 @@ class DiffParser:
                     if len(cells) >= 2:
                         text = cells[0].get_text(strip=True)
                         description = cells[3].get_text(strip=True) if len(cells) > 3 else ''
-                        chapter_path = self.get_chapter_path(row)
-
-                        full_desc = f"{text}"
-                        if description:
-                            full_desc += f" - {description}"
+                        chapter_path = self.find_chapter_for_element(row, soup)
 
                         self.changes.append({
                             'chapter': chapter_path,
                             'change_type': change_type,
-                            'description': full_desc,
+                            'item_name': text,
+                            'description': description,
                             'change_type_raw': change_type.lower().replace('删除', 'deleted').replace('新增', 'added').replace('修改', 'modified'),
                             'verified': '待验证',
                             'remark': ''
@@ -380,16 +403,33 @@ class DiffParser:
             if any(keyword in table_text for keyword in change_keywords):
                 self.extract_changes_from_table(table, soup)
 
-    def export_to_excel(self):
-        """将变更信息导出到Excel"""
-        # 创建工作簿
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "差异报告"
+    def create_sheet(self, wb, sheet_name, changes, color):
+        """
+        创建一个sheet页
+
+        Args:
+            wb: 工作簿对象
+            sheet_name: sheet名称
+            changes: 变更数据列表
+            color: 表头颜色
+        """
+        # 删除默认sheet（如果存在且不是我们要创建的）
+        if 'Sheet' in wb.sheetnames and sheet_name not in wb.sheetnames:
+            del wb['Sheet']
+
+        # 创建sheet
+        if sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            # 清空现有数据
+            for row in ws.iter_rows():
+                for cell in row:
+                    cell.value = None
+        else:
+            ws = wb.create_sheet(title=sheet_name)
 
         # 定义样式
         header_font = Font(bold=True, color='FFFFFF')
-        header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+        header_fill = PatternFill(start_color=color, end_color=color, fill_type='solid')
         thin_border = Border(
             left=Side(style='thin'),
             right=Side(style='thin'),
@@ -399,7 +439,7 @@ class DiffParser:
         alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
         # 定义列头
-        headers = ['章节', '变更类型', '描述', '验证状态', '备注']
+        headers = ['章节', '变更项', '描述', '验证状态', '备注']
 
         # 写入表头
         for col_num, header in enumerate(headers, 1):
@@ -411,9 +451,9 @@ class DiffParser:
             cell.alignment = alignment
 
         # 写入数据
-        for row_num, change in enumerate(self.changes, 2):
+        for row_num, change in enumerate(changes, 2):
             ws.cell(row=row_num, column=1, value=change['chapter'])
-            ws.cell(row=row_num, column=2, value=change['change_type'])
+            ws.cell(row=row_num, column=2, value=change['item_name'])
             ws.cell(row=row_num, column=3, value=change['description'])
             ws.cell(row=row_num, column=4, value=change['verified'])
             ws.cell(row=row_num, column=5, value=change['remark'])
@@ -424,30 +464,60 @@ class DiffParser:
                 cell.border = thin_border
                 cell.alignment = alignment
 
-                # 根据变更类型设置不同的背景色
-                if col_num == 2:
-                    if change['change_type'] == '删除':
-                        cell.fill = PatternFill(start_color='FFCDD2', end_color='FFCDD2', fill_type='solid')
-                    elif change['change_type'] == '新增':
-                        cell.fill = PatternFill(start_color='C8E6C9', end_color='C8E6C9', fill_type='solid')
-                    elif change['change_type'] == '修改':
-                        cell.fill = PatternFill(start_color='FFE0B2', end_color='FFE0B2', fill_type='solid')
-
         # 调整列宽
-        column_widths = [30, 12, 50, 12, 30]
-        for col_num, width in enumerate(column_widths, 1):
-            ws.column_dimensions[get_column_letter(col_num)].width = width
+        ws.column_dimensions['A'].width = 35  # 章节
+        ws.column_dimensions['B'].width = 30  # 变更项
+        ws.column_dimensions['C'].width = 50  # 描述
+        ws.column_dimensions['D'].width = 12  # 验证状态
+        ws.column_dimensions['E'].width = 30  # 备注
 
         # 冻结首行
         ws.freeze_panes = 'A2'
+
+    def export_to_excel(self):
+        """将变更信息导出到Excel，按变更类型分sheet"""
+        # 按变更类型分组
+        changes_by_type = {
+            '删除': [],
+            '新增': [],
+            '修改': []
+        }
+
+        for change in self.changes:
+            change_type = change['change_type']
+            if change_type in changes_by_type:
+                changes_by_type[change_type].append(change)
+
+        # 创建工作簿
+        wb = Workbook()
+        # 删除默认sheet
+        if 'Sheet' in wb.sheetnames:
+            del wb['Sheet']
+
+        # 定义各类型的颜色
+        type_colors = {
+            '删除': 'D32F2F',    # 红色
+            '新增': '388E3C',    # 绿色
+            '修改': 'F57C00'     # 橙色
+        }
+
+        # 创建各类型的sheet
+        for change_type, color in type_colors.items():
+            changes = changes_by_type[change_type]
+            if changes:  # 只创建有数据的sheet
+                self.create_sheet(wb, change_type, changes, color)
 
         # 确保输出目录存在
         os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
 
         # 保存文件
         wb.save(self.output_file)
-        print(f"Excel报告已生成: {self.output_file}")
-        print(f"共提取 {len(self.changes)} 条变更记录")
+
+        # 打印各类型的统计
+        print(f"\nExcel报告已生成: {self.output_file}")
+        print("各Sheet页数据统计:")
+        for change_type, changes in changes_by_type.items():
+            print(f"  {change_type}: {len(changes)} 条")
 
     def generate_summary(self):
         """生成变更摘要"""
