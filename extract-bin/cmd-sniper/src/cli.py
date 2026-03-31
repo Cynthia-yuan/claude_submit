@@ -14,8 +14,26 @@ from pathlib import Path
 
 import click
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Add module path for imports
+# Handle multiple installation scenarios:
+# 1. Direct run: cli.py in src/ directory
+# 2. Installed: cli.py in /var/lib/cmd-sniper/cmd-sniper/cli.py (with src/ subdirectory)
+# 3. Development: cli.py in project root with src/ subdirectory
+cli_file = Path(__file__).resolve()
+cli_dir = cli_file.parent
+
+# Possible module locations
+module_paths = [
+    cli_dir,                      # cli.py is in src/ with modules alongside
+    cli_dir / "src",              # cli.py is in project root, modules in src/
+    cli_dir.parent,               # cli.py is in src/, modules in parent
+    cli_dir / "lib" / "cmd-sniper",  # Installed to lib/cmd-sniper
+    "/var/lib/cmd-sniper/cmd-sniper",  # Default install location
+]
+
+for path in module_paths:
+    if str(path) not in sys.path and path.exists():
+        sys.path.insert(0, str(path))
 
 from storage import Database, Config, load_config
 from capture import AuditdCapture, EbpfCapture, CaptureNotAvailableError

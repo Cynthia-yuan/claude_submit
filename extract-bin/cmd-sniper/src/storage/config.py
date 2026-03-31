@@ -60,7 +60,7 @@ class Config:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
 
-    # Paths
+    # Paths - defaults to system-wide, can be overridden to user-local
     config_dir: str = "/etc/cmd-sniper"
     runtime_dir: str = "/run/cmd-sniper"
     log_dir: str = "/var/log/cmd-sniper"
@@ -70,7 +70,8 @@ class Config:
         """Load configuration from YAML file."""
         config_file = Path(path)
         if not config_file.exists():
-            return cls()
+            # Return config with user-local paths for non-root users
+            return cls._get_default_config()
 
         with open(config_file, "r") as f:
             data = yaml.safe_load(f) or {}
@@ -84,6 +85,28 @@ class Config:
             runtime_dir=data.get("runtime_dir", "/run/cmd-sniper"),
             log_dir=data.get("log_dir", "/var/log/cmd-sniper"),
         )
+
+    @classmethod
+    def _get_default_config(cls) -> "Config":
+        """Get default config, using user-local paths if not root."""
+        if os.geteuid() != 0:
+            # Non-root user: use user-local directories
+            home = Path.home()
+            return cls(
+                config_dir=str(home / ".config" / "cmd-sniper"),
+                runtime_dir=str(home / ".local" / "state" / "cmd-sniper"),
+                log_dir=str(home / ".local" / "log" / "cmd-sniper"),
+                storage=StorageConfig(
+                    db_path=str(home / ".local" / "share" / "cmd-sniper" / "commands.db"),
+                    max_size_mb=1000,
+                    retention_days=90,
+                ),
+                report=ReportConfig(
+                    output_dir=str(home / ".local" / "share" / "cmd-sniper" / "reports"),
+                ),
+            )
+        # Root: use system paths
+        return cls()
 
     def to_file(self, path: str):
         """Save configuration to YAML file."""
