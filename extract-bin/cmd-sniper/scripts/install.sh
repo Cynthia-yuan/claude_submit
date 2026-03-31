@@ -122,20 +122,55 @@ echo "Installing CLI script..."
 
 # Copy source files first
 echo "Copying source files..."
-mkdir -p "$LIB_DIR"
-cp -r "$SCRIPT_DIR/src" "$LIB_DIR/cmd-sniper/"
-cp -r "$SCRIPT_DIR/ebpf" "$LIB_DIR/cmd-sniper/"
+# Create the target directory structure
+mkdir -p "$LIB_DIR/cmd-sniper"
 
-# Create wrapper script - directly call the CLI
+# Check if src directory exists in source
+if [ -d "$SCRIPT_DIR/src" ]; then
+    cp -r "$SCRIPT_DIR/src"/* "$LIB_DIR/cmd-sniper/"
+else
+    echo "  Warning: src directory not found, copying from current directory"
+    cp -r *.py "$LIB_DIR/cmd-sniper/" 2>/dev/null || true
+fi
+
+# Copy ebpf files if they exist
+if [ -d "$SCRIPT_DIR/ebpf" ]; then
+    mkdir -p "$LIB_DIR/cmd-sniper/ebpf"
+    cp -r "$SCRIPT_DIR/ebpf"/* "$LIB_DIR/cmd-sniper/ebpf/"
+fi
+
+# Verify cli.py was copied
+if [ ! -f "$LIB_DIR/cmd-sniper/cli.py" ] && [ -f "$LIB_DIR/cmd-sniper/src/cli.py" ]; then
+    # cli.py is in src subdirectory, adjust wrapper
+    CLI_PATH="$LIB_DIR/cmd-sniper/src/cli.py"
+elif [ -f "$LIB_DIR/cmd-sniper/cli.py" ]; then
+    # cli.py is directly in cmd-sniper directory
+    CLI_PATH="$LIB_DIR/cmd-sniper/cli.py"
+else
+    echo "  Error: cli.py not found after copy!"
+    exit 1
+fi
+
+echo "  Found CLI at: $CLI_PATH"
+
+# Create wrapper script - detect actual CLI location
 cat > "$INSTALL_DIR/bin/cmd-sniper" << EOF
 #!/bin/bash
 # cmd-sniper wrapper script
 
-# Set Python path to include our modules
-export PYTHONPATH="$LIB_DIR/cmd-sniper:\$PYTHONPATH"
+# Auto-detect CLI location
+CLI_PATH="$LIB_DIR/cmd-sniper/src/cli.py"
+if [ ! -f "\$CLI_PATH" ]; then
+    CLI_PATH="$LIB_DIR/cmd-sniper/cli.py"
+fi
+
+if [ ! -f "\$CLI_PATH" ]; then
+    echo "Error: cmd-sniper CLI not found"
+    exit 1
+fi
 
 # Run the CLI directly
-exec $PYTHON "$LIB_DIR/cmd-sniper/src/cli.py" "\$@"
+exec $PYTHON "\$CLI_PATH" "\$@"
 EOF
 chmod +x "$INSTALL_DIR/bin/cmd-sniper"
 
