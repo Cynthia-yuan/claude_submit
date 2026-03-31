@@ -203,7 +203,7 @@ class AusearchParser:
     Ausearch outputs human-readable format with ---- separators.
     """
 
-    EVENT_SEPARATOR =----
+    EVENT_SEPARATOR = "----"
 
     def __init__(self):
         self._current_lines: List[str] = []
