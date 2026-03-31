@@ -1,0 +1,20 @@
+# cmd-sniper requirements
+# Python 3.7+ required
+
+# Core dependencies
+click>=8.0.0           # CLI framework
+PyYAML>=6.0            # Configuration files
+
+# Capture modules
+bcc>=0.25.0            # eBPF support (optional, for eBPF capture)
+
+# Report generation
+Jinja2>=3.1.0          # HTML templating
+
+# Optional: For enhanced functionality
+# python-audit>=3.0     # auditd log parsing (can parse directly instead)
+
+# Development dependencies (optional)
+# pytest>=7.0.0
+# black>=22.0.0
+# mypy>=0.950

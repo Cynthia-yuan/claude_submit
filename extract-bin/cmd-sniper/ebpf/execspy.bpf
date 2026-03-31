@@ -1,0 +1,63 @@
+#!/usr/bin/env bpftrace
+/*
+ * execspy.bpf - bpftrace script to trace execve system calls
+ *
+ * This is a simpler alternative to the BCC-based eBPF program.
+ * It uses bpftrace which has a higher-level scripting language.
+ *
+ * Usage:
+ *   sudo bpftrace execspy.bpf
+ *
+ * Or with output to file:
+ *   sudo bpftrace execspy.bpf > execve.log
+ */
+
+/* Trace the execve system call */
+tracepoint:syscalls:sys_enter_execve
+{
+    /* Extract process information */
+    $pid = pid;
+    $uid = uid;
+    $comm = comm;
+
+    /* Get the filename being executed */
+    $filename = str(args->filename);
+
+    /* Build argument string (first 3 args) */
+    $argc = args->argc;
+    $argv = "";
+
+    if ($argc > 0) {
+        $argv = str(args->filename);
+    }
+
+    /* Print the event in a parseable format */
+    printf("%d %d %s %s\n", $pid, $uid, $comm, $argv);
+}
+
+/* Alternative: Using kprobe on do_execve (older kernels) */
+/*
+kprobe:do_execve
+{
+    $filename = str(((struct filename *)si->filename)->name);
+    printf("execve pid=%d uid=%d comm=%s filename=%s\n", pid, uid, comm, $filename);
+}
+*/
+
+/* You can also filter by specific users */
+/*
+tracepoint:syscalls:sys_enter_execve
+/uid > 1000/
+{
+    printf("%d %d %s %s\n", pid, uid, comm, str(args->filename));
+}
+*/
+
+/* Or filter by specific commands */
+/*
+tracepoint:syscalls:sys_enter_execve
+/str(args->filename) == "sudo"/
+{
+    printf("SUDO: pid=%d uid=%d comm=%s\n", pid, uid, comm);
+}
+*/
