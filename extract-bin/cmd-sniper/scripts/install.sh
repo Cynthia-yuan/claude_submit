@@ -90,6 +90,32 @@ else
     echo -e "${YELLOW}Warning: requirements.txt not found${NC}"
 fi
 
+# Check for optional system dependencies
+echo ""
+echo "Checking optional dependencies..."
+
+# Check for BCC (eBPF support)
+if python3 -c "import bcc" 2>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} bcc (eBPF support) - available"
+else
+    echo -e "  ${YELLOW}○${NC} bcc (eBPF support) - not installed"
+    echo "    To enable eBPF capture, install via:"
+    echo "      Ubuntu/Debian: sudo apt-get install bpfcc-tools libbpfcc"
+    echo "      Fedora/RHEL:   sudo dnf install bcc"
+    echo "      Arch:          sudo pacman -S bcc"
+fi
+
+# Check for auditd
+if command -v auditctl &> /dev/null; then
+    echo -e "  ${GREEN}✓${NC} auditd - available"
+else
+    echo -e "  ${YELLOW}○${NC} auditd - not installed"
+    echo "    To enable auditd capture, install via:"
+    echo "      Ubuntu/Debian: sudo apt-get install auditd"
+    echo "      Fedora/RHEL:   sudo dnf install audit"
+    echo "      Arch:          sudo pacman -S audit"
+fi
+
 # Install the CLI script
 echo ""
 echo "Installing CLI script..."
