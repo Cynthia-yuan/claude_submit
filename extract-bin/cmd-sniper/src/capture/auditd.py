@@ -202,39 +202,74 @@ class AuditdCapture(CaptureBase):
                 if argc_match:
                     event["argc"] = int(argc_match.group(1))
 
-                # Parse arguments (format: a0="xxx" a1="xxx" or a0='xxx' for truncated)
-                # Support both double and single quotes, and handle multi-line args
-                arg_pattern = re.compile(r'[a](\d+)=([\'"])([^\2]*?)\2')
-                for arg_match in arg_pattern.finditer(line):
+                # Parse arguments from this EXECVE line
+                # Format: a0="xxx" a1="xxx" or a0='truncated value' (single quote = truncated)
+                # We need to handle: a0="xxx" a0='continued' (continuation of same arg)
+
+                # First, find all aN="value" and aN='value' patterns
+                for arg_match in re.finditer(r'a(\d+)=([\'"])([^\']*?)\2', line):
                     idx = int(arg_match.group(1))
+                    quote_char = arg_match.group(2)
                     arg_value = arg_match.group(3)
 
-                    # Append to existing arg if it was truncated (ends with ')
-                    if idx in event.get("_raw_args", {}):
+                    if "_raw_args" not in event:
+                        event["_raw_args"] = {}
+
+                    # Check if this argument already exists
+                    if idx in event["_raw_args"]:
+                        # If existing arg ends with single quote, it was truncated
+                        # Append the new value (remove the trailing ' first)
                         if event["_raw_args"][idx].endswith("'"):
                             event["_raw_args"][idx] = event["_raw_args"][idx][:-1] + arg_value
-                        else:
+                        # If this is a new quote and the old value was complete,
+                        # we might be seeing a continuation line
+                        elif quote_char == '"' and not event["_raw_args"][idx].endswith('"'):
                             event["_raw_args"][idx] += arg_value
+                        # Otherwise, this might be a duplicate - skip or append
+                        else:
+                            # Skip duplicates, keep first occurrence
+                            pass
                     else:
-                        if "_raw_args" not in event:
-                            event["_raw_args"] = {}
+                        # New argument
                         event["_raw_args"][idx] = arg_value
 
         # Reconstruct argv from collected arguments
-        if "_raw_args" in event:
-            max_idx = max(event["_raw_args"].keys()) if event["_raw_args"] else 0
+        if "_raw_args" in event and event["_raw_args"]:
+            max_idx = max(event["_raw_args"].keys())
             argv = []
             for i in range(max_idx + 1):
                 if i in event["_raw_args"]:
-                    argv.append(event["_raw_args"][i])
+                    # Clean up: remove trailing single quote (truncation marker)
+                    arg = event["_raw_args"][i]
+                    if arg.endswith("'"):
+                        arg = arg[:-1]
+                    argv.append(arg)
                 elif i < event["argc"]:
-                    argv.append(f"<arg_{i}>")
+                    argv.append("")  # Empty argument
             event["argv"] = argv
             del event["_raw_args"]  # Clean up temporary storage
 
         # Validate we have the minimum required data
         if not event["argv"] or event["uid"] is None:
             return None
+
+        # Additional validation: check for obviously malformed commands
+        # If argv[0] contains multiple known commands concatenated, it's likely a parsing error
+        if event["argv"]:
+            first_arg = event["argv"][0]
+            # Check if first argument looks like multiple commands smushed together
+            # Common patterns: "systemctlgrep", "grepgrep", "lspsaux"
+            known_commands = {'systemctl', 'grep', 'ls', 'ps', 'cat', 'docker', 'kubectl', 'npm', 'pip'}
+            # Count how many known commands appear as substrings
+            command_count = sum(1 for cmd in known_commands if cmd in first_arg.lower())
+            # If more than 2 known command names appear in the first arg, likely corrupted
+            if command_count > 2 and len(first_arg) < 50:
+                return None
+
+            # Check for suspicious patterns that indicate event merging
+            # e.g., "statusActive:" looks like output mixed into command
+            if re.search(r'[A-Z][a-z]+:[A-Z]', first_arg):
+                return None
 
         # Get timestamp as datetime
         if event["timestamp"]:
@@ -246,21 +281,22 @@ class AuditdCapture(CaptureBase):
         """
         Group audit log lines by event.
 
-        Audit events share the same timestamp and event ID in the msg field.
+        Audit events share the same timestamp AND event ID in the msg field.
+        The format is: msg=audit(timestamp:serial) where serial is the unique event ID.
         """
         current_event = []
-        current_event_id = None
+        current_event_key = None
 
         for line in lines:
-            # Extract event ID (format: 1234567890.123:456)
-            event_match = re.search(r'msg=audit\((\d+\.\d+):\d+\)', line)
+            # Extract full event key (format: 1234567890.123:456)
+            event_match = re.search(r'msg=audit\((\d+\.\d+:\d+)\)', line)
             if event_match:
-                event_id = event_match.group(1)
-                if event_id != current_event_id:
+                event_key = event_match.group(1)  # Use full timestamp:serial
+                if event_key != current_event_key:
                     if current_event:
                         yield current_event
                     current_event = [line]
-                    current_event_id = event_id
+                    current_event_key = event_key
                 else:
                     current_event.append(line)
             elif current_event:
