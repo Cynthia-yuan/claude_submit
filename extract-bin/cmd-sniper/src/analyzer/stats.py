@@ -6,8 +6,8 @@ from typing import Dict, List, Optional, Tuple, Any
 from collections import Counter, defaultdict
 import statistics
 
-from ..storage import Database
-from ..parser import CommandParser
+from storage import Database
+from parser import CommandParser
 
 
 class CommandStats:

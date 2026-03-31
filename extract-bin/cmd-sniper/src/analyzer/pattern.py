@@ -7,8 +7,8 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 from collections import defaultdict
 from difflib import SequenceMatcher
 
-from ..storage import Database
-from ..parser import CommandParser
+from storage import Database
+from parser import CommandParser
 
 
 class PatternDetector:

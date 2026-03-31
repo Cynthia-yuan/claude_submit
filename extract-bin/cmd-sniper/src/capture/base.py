@@ -7,7 +7,7 @@ from datetime import datetime
 import signal
 import sys
 
-from ..storage import Database, CommandRecord
+from storage import Database, CommandRecord
 
 
 class CaptureBase(ABC):

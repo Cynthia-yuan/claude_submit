@@ -6,8 +6,8 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
-from ..storage import Database
-from ..analyzer import CommandStats, PatternDetector
+from storage import Database
+from analyzer import CommandStats, PatternDetector
 
 
 class HTMLReporter:

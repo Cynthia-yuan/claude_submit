@@ -251,7 +251,7 @@ class AuditdCapture(CaptureBase):
 
     def _record_to_command(self, event: Dict) -> Optional:
         """Convert a parsed event to a CommandRecord."""
-        from ..storage import CommandRecord
+        from storage import CommandRecord
 
         if not event["argv"]:
             return None

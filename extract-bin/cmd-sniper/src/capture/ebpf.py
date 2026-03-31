@@ -191,7 +191,7 @@ TRACEPOINT_PROBE(sched, sched_process_exec) {
 
     def _event_to_record(self, event: Dict) -> Optional:
         """Convert eBPF event to CommandRecord."""
-        from ..storage import CommandRecord
+        from storage import CommandRecord
 
         # Parse command and arguments
         argv_str = event.get("argv") or event.get("filename", "")
