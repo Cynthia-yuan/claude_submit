@@ -154,12 +154,12 @@ class SSHValidator:
 
                     all_changes.append({
                         'sheet': sheet_name,
-                        'chapter': row[0] if row[0] else '',
+                        'chapter': str(row[0]) if row[0] is not None else '',
                         'change_type': change_type,
-                        'item_name': row[1] if len(row) > 1 and sheet_name not in ['删除', '新增', '修改'] else '',
-                        'description': row[2] if len(row) > 2 else '',
-                        'verified': row[3] if len(row) > 3 else '待验证',
-                        'remark': row[4] if len(row) > 4 else ''
+                        'item_name': str(row[1]) if row[1] is not None else '',
+                        'description': str(row[2]) if len(row) > 2 and row[2] is not None else '',
+                        'verified': str(row[3]) if len(row) > 3 and row[3] is not None else '待验证',
+                        'remark': str(row[4]) if len(row) > 4 and row[4] is not None else ''
                     })
 
             self.changes = all_changes
