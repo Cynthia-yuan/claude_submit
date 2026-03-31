@@ -548,11 +548,15 @@ def parse_env_config(args, prefix):
     Returns:
         环境配置字典
     """
+    # 默认值
+    DEFAULT_USER = 'root'
+    DEFAULT_PASS = 'Huawei12#$'
+
     config = {
         'host': getattr(args, f'{prefix}_host', None) or '',
         'port': getattr(args, f'{prefix}_port', 22),
-        'username': getattr(args, f'{prefix}_user', None) or '',
-        'password': getattr(args, f'{prefix}_pass', None) or '',
+        'username': getattr(args, f'{prefix}_user', None) or DEFAULT_USER,
+        'password': getattr(args, f'{prefix}_pass', None) or DEFAULT_PASS,
         'key_file': getattr(args, f'{prefix}_key', None) or ''
     }
 
@@ -570,17 +574,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
+  # 只指定主机地址（用户名默认root，密码默认Huawei12#$）
+  python diff_validator.py diff_report.xlsx \\
+    --old-host 192.168.1.10 --new-host 192.168.1.20
+
+  # 指定用户名和密码
+  python diff_validator.py diff_report.xlsx \\
+    --old-host 192.168.1.10 --old-user admin --old-pass mypassword \\
+    --new-host 192.168.1.20
+
   # 使用配置文件
-  python diff_validator.py diff_report.xlsx
-
-  # 使用命令行指定环境
-  python diff_validator.py diff_report.xlsx \\
-    --old-host 192.168.1.10 --old-user root --old-pass password \\
-    --new-host 192.168.1.20 --new-user root --new-pass password
-
-  # 只验证新环境
-  python diff_validator.py diff_report.xlsx \\
-    --new-host 192.168.1.20 --new-user root --new-pass password
+  python diff_validator.py diff_report.xlsx --config config.json
         """
     )
 
@@ -590,16 +594,14 @@ def main():
     # 旧环境参数
     parser.add_argument('--old-host', help='旧环境主机地址')
     parser.add_argument('--old-port', type=int, default=22, help='旧环境SSH端口 (默认: 22)')
-    parser.add_argument('--old-user', help='旧环境用户名')
-    parser.add_argument('--old-pass', help='旧环境密码')
-    parser.add_argument('--old-key', help='旧环境SSH密钥文件路径')
+    parser.add_argument('--old-user', default='root', help='旧环境用户名 (默认: root)')
+    parser.add_argument('--old-pass', default='Huawei12#$', help='旧环境密码 (默认: Huawei12#$)')
 
     # 新环境参数
     parser.add_argument('--new-host', help='新环境主机地址')
     parser.add_argument('--new-port', type=int, default=22, help='新环境SSH端口 (默认: 22)')
-    parser.add_argument('--new-user', help='新环境用户名')
-    parser.add_argument('--new-pass', help='新环境密码')
-    parser.add_argument('--new-key', help='新环境SSH密钥文件路径')
+    parser.add_argument('--new-user', default='root', help='新环境用户名 (默认: root)')
+    parser.add_argument('--new-pass', default='Huawei12#$', help='新环境密码 (默认: Huawei12#$)')
 
     args = parser.parse_args()
 
