@@ -279,19 +279,78 @@ class SSHValidator:
             # 检查是否是路径
             if item_name.startswith('/') or re.match(r'^[\w\-/]+\.[\w]+$', item_name):
                 return item_name
+            # 检查是否是接口名（包含斜杠的路径形式）
+            if '/' in item_name or item_name.startswith('/'):
+                return item_name
 
         # 从描述中提取路径
         # 匹配 / 开头的路径
-        path_match = re.search(r'/[/\w\-\.\_]+', description)
+        path_match = re.search(r'(/[/\w\-\.\_]+)', description)
         if path_match:
-            path = path_match.group(0)
-            # 扩展路径匹配（匹配更长的路径）
-            extended_match = re.search(r'(/[/\w\-\.\_]+)', description)
-            if extended_match:
-                return extended_match.group(1)
-            return path
+            return path_match.group(1)
+
+        # 检查描述中的接口路径（如 /sys/class/raw）
+        path_match = re.search(r'(/[a-zA-Z0-9_\-/]+)', description)
+        if path_match:
+            return path_match.group(1)
 
         return None
+
+    def extract_replacement_info(self, description, item_name=''):
+        """
+        从描述中提取替换信息（A变成B）
+
+        Args:
+            description: 描述文本
+            item_name: 变更项名称
+
+        Returns:
+            (old_path, new_path) 或 (None, None)
+        """
+        old_path = None
+        new_path = None
+
+        # 从item_name获取
+        if item_name:
+            if item_name.startswith('/') or '/' in item_name:
+                old_path = item_name
+
+        # 替换关键词模式
+        replacement_patterns = [
+            r'变成\s*([^\s，。]+)',
+            r'改为\s*([^\s，。]+)',
+            r'重命名\s*[为为]?\s*([^\s，。]+)',
+            r'替换\s*[为为]?\s*([^\s，。]+)',
+            r'变更\s*为\s*([^\s，。]+)',
+            r'->\s*([^\s，。]+)',
+            r'→\s*([^\s，。]+)',
+        ]
+
+        # 在描述中查找替换模式
+        for pattern in replacement_patterns:
+            match = re.search(pattern, description)
+            if match:
+                new_path = match.group(1)
+                break
+
+        # 如果没有old_path，尝试从描述开头提取
+        if not old_path:
+            # 匹配开头的路径
+            path_match = re.search(r'(/[/\w\.\-]+)', description)
+            if path_match:
+                old_path = path_match.group(1)
+
+        # 如果new_path是相对路径，尝试转换为绝对路径
+        if new_path and not new_path.startswith('/') and old_path:
+            # 如果new_path看起来像路径，可能与old_path在同一目录
+            if '/' in new_path or re.match(r'^[\w\-/.]+$', new_path):
+                # 保持原样
+                pass
+
+        if old_path and new_path:
+            return old_path, new_path
+
+        return None, None
 
     def validate_change(self, change, client_old, client_new):
         """
@@ -342,6 +401,35 @@ class SSHValidator:
 
     def validate_deletion(self, file_path, client_old, client_new, result):
         """验证删除项"""
+        item_name = result.get('item_name', '')
+        description = result['description']
+
+        # 检查是否是"删除并替换"的情况
+        old_path, new_path = self.extract_replacement_info(description, item_name)
+
+        if old_path and new_path:
+            # 这是替换场景：A变成B
+            # 验证：旧路径在新环境不存在，新路径在新环境存在
+            old_exists_new_env = client_new and self.check_file_exists(client_new, old_path)
+            new_exists_new_env = client_new and self.check_file_exists(client_new, new_path)
+
+            if not old_exists_new_env and new_exists_new_env:
+                result['verified'] = '通过'
+                result['remark'] = f'{old_path} 已删除，{new_path} 已存在 ✓'
+            elif not old_exists_new_env and not new_exists_new_env:
+                result['verified'] = '失败'
+                result['remark'] = f'{old_path} 已删除，但 {new_path} 不存在'
+            elif old_exists_new_env and new_exists_new_env:
+                result['verified'] = '失败'
+                result['remark'] = f'{old_path} 仍然存在，{new_path} 也存在'
+            else:
+                result['verified'] = '失败'
+                result['remark'] = f'{old_path} 仍然存在，{new_path} 不存在'
+
+            self.logger.info(f"[删除/替换] {old_path} -> {new_path} - {result['verified']}")
+            return result
+
+        # 普通删除验证
         # 检查旧环境是否存在
         old_exists = client_old and self.check_file_exists(client_old, file_path)
         # 检查新环境是否不存在
@@ -463,6 +551,9 @@ class SSHValidator:
         # 更新Excel文件
         self.update_excel(wb)
 
+        # 生成HTML报告
+        self.generate_html()
+
         # 生成验证摘要
         self.generate_summary()
 
@@ -514,6 +605,253 @@ class SSHValidator:
         # 保存更新后的Excel
         wb.save(self.excel_file)
         self.logger.info(f"\nExcel文件已更新: {self.excel_file}")
+
+    def generate_html(self):
+        """生成HTML报告"""
+        # 确定HTML输出路径
+        base_dir = os.path.dirname(os.path.abspath(self.excel_file))
+        base_name = os.path.splitext(os.path.basename(self.excel_file))[0]
+        self.html_file = os.path.join(base_dir, f"{base_name}.html")
+
+        # 按sheet分组结果
+        results_by_sheet = {}
+        for result in self.validation_results:
+            sheet_name = result.get('sheet', '未知')
+            if sheet_name not in results_by_sheet:
+                results_by_sheet[sheet_name] = []
+            results_by_sheet[sheet_name].append(result)
+
+        # 生成HTML内容
+        html_parts = ['<!DOCTYPE html>']
+        html_parts.append('<html lang="zh-CN">')
+        html_parts.append('<head>')
+        html_parts.append('<meta charset="UTF-8">')
+        html_parts.append('<meta name="viewport" content="width=device-width, initial-scale=1.0">')
+        html_parts.append(f'<title>{base_name} - 验证报告</title>')
+        html_parts.append('<style>')
+        html_parts.append(self.get_html_css())
+        html_parts.append('</style>')
+        html_parts.append('</head>')
+        html_parts.append('<body>')
+
+        # 头部
+        html_parts.append('<div class="container">')
+        html_parts.append('<header>')
+        html_parts.append(f'<h1>{base_name}</h1>')
+        html_parts.append(f'<p class="timestamp">生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>')
+        html_parts.append('</header>')
+
+        # 总计摘要
+        total_summary = self.calculate_total_summary()
+        html_parts.append('<div class="total-summary">')
+        html_parts.append(f'<span class="stat-item">总计: <strong>{total_summary["total"]}</strong></span>')
+        html_parts.append(f'<span class="stat-item stat-pass">通过: {total_summary["passed"]}</span>')
+        html_parts.append(f'<span class="stat-item stat-fail">失败: {total_summary["failed"]}</span>')
+        html_parts.append(f'<span class="stat-item stat-warn">警告: {total_summary["warned"]}</span>')
+        html_parts.append(f'<span class="stat-item stat-skip">跳过: {total_summary["skipped"]}</span>')
+        html_parts.append('</div>')
+
+        # 导航标签
+        html_parts.append('<nav class="tabs">')
+        for sheet_name in results_by_sheet.keys():
+            sheet_id = sheet_name.replace(' ', '-').lower()
+            html_parts.append(f'<button class="tab-button {"active" if sheet_name == list(results_by_sheet.keys())[0] else ""}" onclick="showTab(\'{sheet_id}\')">{sheet_name}</button>')
+        html_parts.append('</nav>')
+
+        # 内容区域
+        html_parts.append('<div class="content">')
+
+        for idx, (sheet_name, results) in enumerate(results_by_sheet.items()):
+            sheet_id = sheet_name.replace(' ', '-').lower()
+            is_active = idx == 0
+
+            html_parts.append(f'<div id="{sheet_id}" class="tab-content {"active" if is_active else ""}">')
+
+            # Sheet摘要
+            summary = self.calculate_sheet_summary(results)
+            html_parts.append('<div class="summary">')
+            html_parts.append(f'<h2>{sheet_name}</h2>')
+            html_parts.append('<div class="summary-stats">')
+            html_parts.append(f'<span class="stat-item">总计: <strong>{summary["total"]}</strong></span>')
+            if summary['passed'] > 0:
+                html_parts.append(f'<span class="stat-item stat-pass">通过: {summary["passed"]}</span>')
+            if summary['failed'] > 0:
+                html_parts.append(f'<span class="stat-item stat-fail">失败: {summary["failed"]}</span>')
+            if summary['warned'] > 0:
+                html_parts.append(f'<span class="stat-item stat-warn">警告: {summary["warned"]}</span>')
+            if summary['skipped'] > 0:
+                html_parts.append(f'<span class="stat-item stat-skip">跳过: {summary["skipped"]}</span>')
+            html_parts.append('</div>')
+            html_parts.append('</div>')
+
+            # 表格
+            html_parts.append('<table class="data-table">')
+            html_parts.append('<thead><tr>')
+            html_parts.append('<th>章节</th><th>变更项</th><th>描述</th><th>验证状态</th><th>备注</th>')
+            html_parts.append('</tr></thead>')
+            html_parts.append('<tbody>')
+
+            for result in results:
+                status_class = f' status-{result["verified"].lower()}' if result['verified'] in ['通过', '失败', '警告', '跳过'] else ''
+                html_parts.append(f'<tr>')
+                html_parts.append(f'<td>{result["chapter"]}</td>')
+                html_parts.append(f'<td>{result["item_name"]}</td>')
+                html_parts.append(f'<td>{result["description"]}</td>')
+                html_parts.append(f'<td class="status{status_class}">{result["verified"]}</td>')
+                html_parts.append(f'<td>{result["remark"]}</td>')
+                html_parts.append(f'</tr>')
+
+            html_parts.append('</tbody>')
+            html_parts.append('</table>')
+            html_parts.append('</div>')
+
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+
+        # JavaScript
+        html_parts.append('<script>')
+        html_parts.append(self.get_html_js())
+        html_parts.append('</script>')
+
+        html_parts.append('</body>')
+        html_parts.append('</html>')
+
+        # 保存HTML文件
+        html_content = '\n'.join(html_parts)
+        try:
+            with open(self.html_file, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            self.logger.info(f"HTML报告已生成: {self.html_file}")
+        except Exception as e:
+            self.logger.error(f"生成HTML文件失败: {e}")
+
+    def calculate_total_summary(self):
+        """计算总计摘要"""
+        summary = {'total': 0, 'passed': 0, 'failed': 0, 'warned': 0, 'skipped': 0}
+        for result in self.validation_results:
+            summary['total'] += 1
+            if result['verified'] == '通过':
+                summary['passed'] += 1
+            elif result['verified'] == '失败':
+                summary['failed'] += 1
+            elif result['verified'] == '警告':
+                summary['warned'] += 1
+            elif result['verified'] == '跳过':
+                summary['skipped'] += 1
+        return summary
+
+    def calculate_sheet_summary(self, results):
+        """计算Sheet摘要"""
+        summary = {'total': 0, 'passed': 0, 'failed': 0, 'warned': 0, 'skipped': 0}
+        for result in results:
+            summary['total'] += 1
+            if result['verified'] == '通过':
+                summary['passed'] += 1
+            elif result['verified'] == '失败':
+                summary['failed'] += 1
+            elif result['verified'] == '警告':
+                summary['warned'] += 1
+            elif result['verified'] == '跳过':
+                summary['skipped'] += 1
+        return summary
+
+    def get_html_css(self):
+        """获取HTML CSS样式"""
+        return '''
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+}
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+}
+header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 30px;
+    text-align: center;
+}
+header h1 { font-size: 28px; margin-bottom: 10px; }
+.timestamp { opacity: 0.9; font-size: 14px; }
+.total-summary {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    padding: 20px;
+    background: #f8f9fa;
+    flex-wrap: wrap;
+}
+.stat-item {
+    padding: 10px 20px;
+    background: white;
+    border-radius: 25px;
+    font-size: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.stat-item strong { color: #667eea; font-size: 18px; }
+.stat-pass { color: #28a745; }
+.stat-fail { color: #dc3545; }
+.stat-warn { color: #ffc107; }
+.stat-skip { color: #6c757d; }
+.tabs { display: flex; background: #f8f9fa; border-bottom: 1px solid #dee2e6; }
+.tab-button {
+    flex: 1;
+    padding: 15px 20px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 16px;
+    color: #495057;
+    border-bottom: 3px solid transparent;
+}
+.tab-button:hover { background: #e9ecef; color: #667eea; }
+.tab-button.active { color: #667eea; border-bottom-color: #667eea; background: white; }
+.content { padding: 30px; }
+.tab-content { display: none; }
+.tab-content.active { display: block; animation: fadeIn 0.3s; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.summary { margin-bottom: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; }
+.summary h2 { font-size: 20px; margin-bottom: 15px; color: #495057; }
+.summary-stats { display: flex; flex-wrap: wrap; gap: 15px; }
+.data-table { width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.data-table thead { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+.data-table th { padding: 15px; text-align: left; font-weight: 600; }
+.data-table td { padding: 12px 15px; border-bottom: 1px solid #e9ecef; }
+.data-table tbody tr:hover { background: #f8f9fa; }
+.status-pass { color: #28a745; font-weight: 600; }
+.status-fail { color: #dc3545; font-weight: 600; }
+.status-warn { color: #ffc107; font-weight: 600; }
+.status-skip { color: #6c757d; font-weight: 600; }
+@media (max-width: 768px) {
+    .tabs { flex-direction: column; }
+    .tab-button { border-left: 3px solid transparent; }
+    .tab-button.active { border-left-color: #667eea; }
+    .data-table { font-size: 12px; }
+    .data-table th, .data-table td { padding: 8px; }
+}
+'''
+
+    def get_html_js(self):
+        """获取HTML JavaScript代码"""
+        return '''
+function showTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+    event.target.classList.add('active');
+}
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelector('.tab-button')?.click();
+});
+'''
 
     def generate_summary(self):
         """生成验证摘要"""
