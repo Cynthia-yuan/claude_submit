@@ -4,7 +4,7 @@ Pattern recognition module for command analysis.
 import re
 from datetime import datetime, timedelta
 from typing import List, Optional, Set, Tuple, Any
-from collections import defaultdict
+from collections import defaultdict, Counter
 from difflib import SequenceMatcher
 
 from storage import Database
