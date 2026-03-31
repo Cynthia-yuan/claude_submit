@@ -10,6 +10,7 @@ import os
 import signal
 import time
 import argparse
+import csv
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -277,14 +278,46 @@ def cmd_report(args):
         if args.format == "html":
             reporter = HTMLReporter(db)
             reporter.generate(args.output, start_time=start_time, end_time=end_time)
+            print(f"HTML report saved to: {args.output}")
+
+            # Also generate CSV/Excel file
+            # Generate CSV filename by replacing .html with .csv
+            base_name = os.path.splitext(args.output)[0]
+            csv_output = f"{base_name}.csv"
+
+            # Export full command data to CSV
+            commands = db.get_commands(
+                limit=100000,
+                start_time=start_time,
+                end_time=end_time,
+            )
+
+            Path(csv_output).parent.mkdir(parents=True, exist_ok=True)
+            with open(csv_output, "w", newline="") as f:
+                if commands:
+                    # Define column order for better readability
+                    fieldnames = [
+                        "id", "timestamp", "username", "uid",
+                        "command", "full_command", "pid", "cwd",
+                        "capture_method"
+                    ]
+                    # Filter to only existing fields
+                    available_fields = [f for f in fieldnames if f in commands[0]]
+                    writer = csv.DictWriter(f, fieldnames=available_fields, extrasaction="ignore")
+                    writer.writeheader()
+                    writer.writerows(commands)
+
+            print(f"CSV/Excel file saved to: {csv_output}")
+
         elif args.format == "json":
             reporter = JSONReporter(db)
             reporter.export(args.output, start_time=start_time, end_time=end_time)
+            print(f"Report saved to: {args.output}")
         elif args.format == "json-summary":
             reporter = JSONReporter(db)
             reporter.export_summary(args.output)
+            print(f"Report saved to: {args.output}")
 
-        print(f"Report saved to: {args.output}")
     except Exception as e:
         print(f"Error generating report: {e}", file=sys.stderr)
         sys.exit(1)
