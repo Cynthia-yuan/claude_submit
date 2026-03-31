@@ -1,12 +1,9 @@
 # cmd-sniper requirements
 # Python 3.7+ required
-
-# Core dependencies
-click>=8.0.0           # CLI framework
-PyYAML>=6.0            # Configuration files
-
-# eBPF support (bcc) - Install via system package manager:
+#
+# NO EXTERNAL DEPENDENCIES - Uses Python standard library only!
+#
+# Optional: eBPF support (bcc) - Install via system package manager:
 #   Ubuntu/Debian:  sudo apt-get install bpfcc-tools libbpfcc
 #   Fedora/RHEL:    sudo dnf install bcc
 #   Arch:           sudo pacman -S bcc
-# After installing, the Python module will be available as 'bcc'

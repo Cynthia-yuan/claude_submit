@@ -9,36 +9,44 @@ import sys
 import os
 import signal
 import time
+import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import click
-
 # Add module path for imports
-# Handle multiple installation scenarios:
-# 1. Direct run: cli.py in src/ directory
-# 2. Installed: cli.py in /var/lib/cmd-sniper/cmd-sniper/cli.py (with src/ subdirectory)
-# 3. Development: cli.py in project root with src/ subdirectory
 cli_file = Path(__file__).resolve()
 cli_dir = cli_file.parent
 
-# Possible module locations
+# Possible module locations - all as Path objects
 module_paths = [
-    cli_dir,                      # cli.py is in src/ with modules alongside
-    cli_dir / "src",              # cli.py is in project root, modules in src/
-    cli_dir.parent,               # cli.py is in src/, modules in parent
-    cli_dir / "lib" / "cmd-sniper",  # Installed to lib/cmd-sniper
-    "/var/lib/cmd-sniper/cmd-sniper",  # Default install location
+    cli_dir,
+    cli_dir / "src",
+    cli_dir.parent,
+    Path("/var/lib/cmd-sniper/cmd-sniper"),
 ]
 
 for path in module_paths:
-    if str(path) not in sys.path and path.exists():
-        sys.path.insert(0, str(path))
+    path_str = str(path)
+    if path_str not in sys.path and path.is_dir():
+        sys.path.insert(0, path_str)
 
-from storage import Database, Config, load_config
-from capture import AuditdCapture, EbpfCapture, CaptureNotAvailableError
-from analyzer import CommandStats
-from reporter import HTMLReporter, JSONReporter
+try:
+    from storage import Database, Config, load_config
+    from capture import AuditdCapture, EbpfCapture, CaptureNotAvailableError
+    from analyzer import CommandStats
+    from reporter import HTMLReporter, JSONReporter
+except ImportError as e:
+    print(f"Error importing modules: {e}", file=sys.stderr)
+    print("Make sure you're running from the correct directory.", file=sys.stderr)
+    sys.exit(1)
+
+
+def check_root():
+    """Check if running as root."""
+    if os.geteuid() != 0:
+        print("Error: This command requires root privileges.", file=sys.stderr)
+        print("Please run with sudo.", file=sys.stderr)
+        sys.exit(1)
 
 
 def get_db(config_path: str = None) -> Database:
@@ -48,101 +56,80 @@ def get_db(config_path: str = None) -> Database:
     return Database(config.storage.db_path)
 
 
-def check_root():
-    """Check if running as root."""
-    if os.geteuid() != 0:
-        click.echo("Error: This command requires root privileges.", err=True)
-        click.echo("Please run with sudo.", err=True)
-        sys.exit(1)
-
-
-@click.group()
-@click.option("--config", "-c", help="Path to configuration file")
-@click.pass_context
-def cli(ctx, config):
-    """cmd-sniper - Linux command audit and analysis tool."""
-    ctx.ensure_object(dict)
-    ctx.obj["config"] = config
-
-
-@cli.command()
-@click.option("--method", "-m", type=click.Choice(["auditd", "ebpf", "both"]), default="auditd",
-              help="Capture method to use")
-@click.option("--foreground", "-f", is_flag=True, help="Run in foreground")
-@click.option("--daemon", "-d", is_flag=True, help="Run as daemon")
-@click.option("--pid-file", default="/run/cmd-sniper/pid", help="PID file location")
-@click.pass_context
-def start(ctx, method, foreground, daemon, pid_file):
+def cmd_start(args):
     """Start command capture."""
-    check_root()
+    if os.geteuid() != 0 and args.method != "none":
+        print("Warning: Not running as root. Capture may not work properly.", file=sys.stderr)
+        response = input("Continue? (y/N): ")
+        if response.lower() != 'y':
+            return
 
-    config = load_config(ctx.obj["config"])
+    config = load_config(args.config)
     db = Database(config.storage.db_path)
 
-    click.echo("Starting cmd-sniper capture...")
+    print("Starting cmd-sniper capture...")
 
     instances = []
+    method = args.method.lower()
+
     if method in ("auditd", "both"):
         try:
             auditd = AuditdCapture(db, config)
             if not auditd.is_available():
-                click.echo("Warning: auditd capture not available", err=True)
+                print("Warning: auditd capture not available", file=sys.stderr)
             else:
                 auditd.start()
                 instances.append(("auditd", auditd))
-                click.echo(f"  - auditd capture started")
+                print("  - auditd capture started")
         except CaptureNotAvailableError as e:
-            click.echo(f"  - auditd: {e}", err=True)
+            print(f"  - auditd: {e}", file=sys.stderr)
 
     if method in ("ebpf", "both"):
         try:
             ebpf = EbpfCapture(db, config)
             if not ebpf.is_available():
-                click.echo("Warning: eBPF capture not available", err=True)
+                print("Warning: eBPF capture not available", file=sys.stderr)
             else:
                 ebpf.start()
                 instances.append(("ebpf", ebpf))
-                click.echo(f"  - eBPF capture started")
+                print("  - eBPF capture started")
         except CaptureNotAvailableError as e:
-            click.echo(f"  - eBPF: {e}", err=True)
+            print(f"  - eBPF: {e}", file=sys.stderr)
 
     if not instances:
-        click.echo("Error: No capture method available!", err=True)
+        print("Error: No capture method available!", file=sys.stderr)
         sys.exit(1)
 
     # Write PID file
+    pid_file = args.pid_file
     Path(pid_file).parent.mkdir(parents=True, exist_ok=True)
     with open(pid_file, "w") as f:
         f.write(str(os.getpid()))
 
-    if daemon:
-        # Fork to background
-        click.echo(f"Running in background (PID: {os.getpid()})")
-        click.echo(f"Logs: {config.log_dir}")
+    if args.daemon:
+        print(f"Running in background (PID: {os.getpid()})")
+        print(f"Logs: {config.log_dir}")
 
-    # Setup signal handler for cleanup
+    # Setup signal handler
     def cleanup(signum, frame):
-        click.echo("\nStopping capture...")
+        print("\nStopping capture...")
         for name, instance in instances:
             try:
                 instance.stop()
-                click.echo(f"  - {name} stopped")
+                print(f"  - {name} stopped")
             except Exception as e:
-                click.echo(f"  - {name} error: {e}", err=True)
-
-        # Remove PID file
+                print(f"  - {name} error: {e}", file=sys.stderr)
         try:
             os.remove(pid_file)
         except FileNotFoundError:
             pass
-
         sys.exit(0)
 
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
 
     # Main capture loop
-    click.echo("Capturing commands... Press Ctrl+C to stop.")
+    print("Capturing commands... Press Ctrl+C to stop.")
     last_report = time.time()
 
     try:
@@ -153,285 +140,412 @@ def start(ctx, method, foreground, daemon, pid_file):
                         count = instance.capture_once()
                     else:
                         count = instance.capture_once(timeout_ms=100)
-
                     if count > 0:
-                        click.echo(f"\rCaptured {count} commands   ", nl=False)
-
+                        print(f"\rCaptured {count} commands   ", end="", flush=True)
                 except Exception as e:
-                    click.echo(f"\nError in {name}: {e}", err=True)
+                    print(f"\nError in {name}: {e}", file=sys.stderr)
 
-            # Periodic status update
             if time.time() - last_report > 60:
-                stats = db.get_stats()
-                click.echo(f"\nTotal: {stats['total_commands']:,} commands")
+                try:
+                    stats = db.get_stats()
+                    print(f"\nTotal: {stats['total_commands']:,} commands")
+                except Exception:
+                    pass
                 last_report = time.time()
 
             time.sleep(1)
-
     except KeyboardInterrupt:
         cleanup(None, None)
 
 
-@cli.command()
-@click.option("--pid-file", default="/run/cmd-sniper/pid", help="PID file location")
-@click.pass_context
-def stop(ctx, pid_file):
+def cmd_stop(args):
     """Stop command capture."""
+    pid_file = args.pid_file
     try:
         with open(pid_file) as f:
             pid = int(f.read().strip())
         os.kill(pid, signal.SIGTERM)
-        click.echo(f"Sent stop signal to process {pid}")
+        print(f"Sent stop signal to process {pid}")
     except FileNotFoundError:
-        click.echo("cmd-sniper is not running (no PID file found)", err=True)
+        print("cmd-sniper is not running (no PID file found)", file=sys.stderr)
         sys.exit(1)
     except ProcessLookupError:
-        click.echo(f"Process {pid} not found, cleaning up PID file", err=True)
-        os.remove(pid_file)
+        print(f"Process {pid} not found, cleaning up PID file", file=sys.stderr)
+        try:
+            os.remove(pid_file)
+        except FileNotFoundError:
+            pass
         sys.exit(1)
 
 
-@cli.command()
-@click.option("--pid-file", default="/run/cmd-sniper/pid", help="PID file location")
-@click.pass_context
-def status(ctx, pid_file):
+def cmd_status(args):
     """Show capture status."""
-    db = get_db(ctx.obj["config"])
+    try:
+        db = get_db(args.config)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Check if running
     running = False
+    pid_file = "/run/cmd-sniper/pid"
     try:
         with open(pid_file) as f:
             pid = int(f.read().strip())
-        os.kill(pid, 0)  # Check if process exists
+        os.kill(pid, 0)
         running = True
     except (FileNotFoundError, ProcessLookupError):
         pass
 
-    # Database stats
-    stats = db.get_stats()
-
-    click.echo("cmd-sniper Status:")
-    click.echo(f"  Running: {'Yes' if running else 'No'}")
-    click.echo(f"  Total Commands: {stats['total_commands']:,}")
-    click.echo(f"  Unique Commands: {stats['unique_commands']:,}")
-    click.echo(f"  Unique Users: {stats['unique_users']}")
-    click.echo(f"  First Record: {stats.get('first_command', 'N/A')}")
-    click.echo(f"  Last Record: {stats.get('last_command', 'N/A')}")
-
-    if stats.get('method_breakdown'):
-        click.echo("\nCapture Methods:")
-        for method, count in stats['method_breakdown'].items():
-            click.echo(f"  {method}: {count:,}")
-
-    # Active sessions
-    sessions = db.get_active_sessions()
-    if sessions:
-        click.echo(f"\nActive Sessions: {len(sessions)}")
-        for session in sessions:
-            click.echo(f"  - {session['capture_method']}: started {session['start_time']}")
-
-
-@cli.command()
-@click.option("--output", "-o", default="report.html", help="Output file path")
-@click.option("--format", "-f", type=click.Choice(["html", "json", "json-summary"]), default="html",
-              help="Report format")
-@click.option("--start", "-s", help="Start time (ISO format)")
-@click.option("--end", "-e", help="End time (ISO format)")
-@click.option("--days", "-d", type=int, help="Number of days to include")
-@click.pass_context
-def report(ctx, output, format, start, end, days):
-    """Generate analysis report."""
-    db = get_db(ctx.obj["config"])
-
-    # Parse time range
-    start_time = datetime.fromisoformat(start) if start else None
-    end_time = datetime.fromisoformat(end) if end else None
-
-    if days:
-        start_time = datetime.now() - timedelta(days=days)
-        end_time = datetime.now()
-
-    click.echo(f"Generating {format.upper()} report...")
-
-    if format == "html":
-        reporter = HTMLReporter(db)
-        reporter.generate(output, start_time=start_time, end_time=end_time)
-    elif format == "json":
-        reporter = JSONReporter(db)
-        reporter.export(output, start_time=start_time, end_time=end_time)
-    elif format == "json-summary":
-        reporter = JSONReporter(db)
-        reporter.export_summary(output)
-
-    click.echo(f"Report saved to: {output}")
-
-
-@cli.command()
-@click.argument("pattern")
-@click.option("--limit", "-l", default=50, help="Maximum results")
-@click.option("--user", "-u", type=int, help="Filter by user ID")
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-@click.pass_context
-def query(ctx, pattern, limit, user, as_json):
-    """Search for commands matching pattern."""
-    db = get_db(ctx.obj["config"])
-
-    results = db.get_commands(
-        limit=limit,
-        user=user,
-        search=pattern,
-    )
-
-    if as_json:
-        import json
-        click.echo(json.dumps(results, indent=2, default=str))
-    else:
-        click.echo(f"Found {len(results)} matching commands:\n")
-        for cmd in results:
-            click.echo(f"  [{cmd['timestamp'][:19]}] {cmd['username']}: {cmd['full_command'][:80]}")
-
-
-@cli.command()
-@click.option("--limit", "-l", default=20, help="Number of results")
-@click.option("--user", "-u", type=int, help="Filter by user ID")
-@click.pass_context
-def top(ctx, limit, user):
-    """Show top commands."""
-    db = get_db(ctx.obj["config"])
-    stats = CommandStats(db)
-
-    commands = stats.get_top_commands(limit, user=user)
-
-    click.echo(f"\nTop {len(commands)} Commands:")
-    for i, cmd in enumerate(commands, 1):
-        click.echo(f"  {i:2}. {cmd['command']:20} ({cmd['count']:>5}x)")
-
-
-@cli.command()
-@click.option("--limit", "-l", default=10, help="Number of results")
-@click.pass_context
-def users(ctx, limit):
-    """Show top users."""
-    db = get_db(ctx.obj["config"])
-    stats = CommandStats(db)
-
-    user_stats = stats.get_top_users(limit)
-
-    click.echo(f"\nTop {len(user_stats)} Users:")
-    for i, user in enumerate(user_stats, 1):
-        click.echo(f"  {i:2}. {user['username']:15} ({user['command_count']:>5} commands, {user['unique_commands']} unique)")
-
-
-@cli.command()
-@click.option("--user", "-u", type=int, help="User ID to analyze")
-@click.option("--limit", "-l", default=10, help="Number of results")
-@click.pass_context
-def risky(ctx, user, limit):
-    """Show risky commands."""
-    db = get_db(ctx.obj["config"])
-    stats = CommandStats(db)
-
-    commands = stats.get_risk_commands(limit)
-
-    if not commands:
-        click.echo("No risky commands found.")
-        return
-
-    click.echo(f"\nRisky Commands ({len(commands)}):")
-    for cmd in commands:
-        click.echo(f"  [{cmd['risk_level'].upper():^8}] {cmd['username']}: {cmd['full_command'][:70]}")
-
-
-@cli.command()
-@click.option("--days", "-d", type=int, default=7, help="Number of days to analyze")
-@click.pass_context
-def summary(ctx, days):
-    """Show text summary report."""
-    db = get_db(ctx.obj["config"])
-    stats = CommandStats(db)
-
-    start_time = datetime.now() - timedelta(days=days)
-    end_time = datetime.now()
-
-    # Update stats to use time range
-    overview = stats.get_overview()
-    top_commands = stats.get_top_commands(10)
-    top_users = stats.get_top_users(10)
-
-    click.echo(stats.get_summary_report())
-
-
-@cli.command()
-@click.option("--format", "-f", type=click.Choice(["json", "jsonl", "csv"]), default="json",
-              help="Export format")
-@click.option("--output", "-o", required=True, help="Output file")
-@click.option("--user", "-u", type=int, help="Filter by user ID")
-@click.option("--limit", "-l", type=int, default=100000, help="Maximum records")
-@click.pass_context
-def export(ctx, format, output, user, limit):
-    """Export command data."""
-    db = get_db(ctx.obj["config"])
-    reporter = JSONReporter(db)
-
-    reporter.export_commands_only(
-        output_path=output,
-        user=user,
-        limit=limit,
-        format=format,
-    )
-
-    click.echo(f"Exported to: {output}")
-
-
-@cli.command()
-@click.option("--retention", "-r", type=int, default=90, help="Days to keep")
-@click.option("--dry-run", "-n", is_flag=True, help="Show what would be deleted")
-@click.pass_context
-def cleanup(ctx, retention, dry_run):
-    """Clean up old records."""
-    check_root()
-
-    db = get_db(ctx.obj["config"])
-
-    if dry_run:
-        click.echo(f"Dry run: would delete records older than {retention} days")
-        # Count would-be deleted records
+    try:
         stats = db.get_stats()
-        click.echo(f"Total records in database: {stats['total_commands']}")
-    else:
-        count = db.cleanup_old_records(retention)
-        click.echo(f"Deleted {count} old records")
 
-        # Vacuum database
-        db.vacuum()
-        click.echo("Database vacuumed")
+        print("cmd-sniper Status:")
+        print(f"  Running: {'Yes' if running else 'No'}")
+        print(f"  Total Commands: {stats['total_commands']:,}")
+        print(f"  Unique Commands: {stats['unique_commands']:,}")
+        print(f"  Unique Users: {stats['unique_users']}")
+        print(f"  First Record: {stats.get('first_command', 'N/A')}")
+        print(f"  Last Record: {stats.get('last_command', 'N/A')}")
+
+        if stats.get('method_breakdown'):
+            print("\nCapture Methods:")
+            for method, count in stats['method_breakdown'].items():
+                print(f"  {method}: {count:,}")
+
+        sessions = db.get_active_sessions()
+        if sessions:
+            print(f"\nActive Sessions: {len(sessions)}")
+            for session in sessions:
+                print(f"  - {session['capture_method']}: started {session['start_time']}")
+    except Exception as e:
+        print(f"Error getting stats: {e}", file=sys.stderr)
 
 
-@cli.command()
-@click.pass_context
-def init(ctx):
+def cmd_init(args):
     """Initialize cmd-sniper (create database, directories)."""
-    check_root()
+    if os.geteuid() != 0:
+        print("Warning: Not running as root. Using user-local directories.", file=sys.stderr)
 
-    config = load_config(ctx.obj["config"])
+    config = load_config(args.config)
     config.ensure_directories()
 
     db = Database(config.storage.db_path)
 
-    # Set metadata
     db.set_metadata("initialized", datetime.now().isoformat())
     db.set_metadata("version", "1.0.0")
 
-    click.echo("cmd-sniper initialized successfully!")
-    click.echo(f"  Database: {config.storage.db_path}")
-    click.echo(f"  Config: {config.config_dir}")
-    click.echo(f"  Logs: {config.log_dir}")
+    print("cmd-sniper initialized successfully!")
+    print(f"  Database: {config.storage.db_path}")
+    print(f"  Config: {config.config_dir}")
+    print(f"  Logs: {config.log_dir}")
+
+
+def cmd_report(args):
+    """Generate analysis report."""
+    try:
+        db = get_db(args.config)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Parse time range
+    start_time = None
+    end_time = None
+
+    if args.start:
+        try:
+            start_time = datetime.fromisoformat(args.start)
+        except ValueError:
+            print(f"Error: Invalid start time format: {args.start}", file=sys.stderr)
+            sys.exit(1)
+
+    if args.end:
+        try:
+            end_time = datetime.fromisoformat(args.end)
+        except ValueError:
+            print(f"Error: Invalid end time format: {args.end}", file=sys.stderr)
+            sys.exit(1)
+
+    if args.days:
+        start_time = datetime.now() - timedelta(days=args.days)
+        end_time = datetime.now()
+
+    print(f"Generating {args.format} report...")
+
+    try:
+        if args.format == "html":
+            reporter = HTMLReporter(db)
+            reporter.generate(args.output, start_time=start_time, end_time=end_time)
+        elif args.format == "json":
+            reporter = JSONReporter(db)
+            reporter.export(args.output, start_time=start_time, end_time=end_time)
+        elif args.format == "json-summary":
+            reporter = JSONReporter(db)
+            reporter.export_summary(args.output)
+
+        print(f"Report saved to: {args.output}")
+    except Exception as e:
+        print(f"Error generating report: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_query(args):
+    """Search for commands matching pattern."""
+    try:
+        db = get_db(args.config)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    results = db.get_commands(
+        limit=args.limit,
+        user=args.user,
+        search=args.pattern,
+    )
+
+    if args.json:
+        import json
+        print(json.dumps(results, indent=2, default=str))
+    else:
+        print(f"Found {len(results)} matching commands:\n")
+        for cmd in results:
+            print(f"  [{cmd['timestamp'][:19]}] {cmd['username']}: {cmd['full_command'][:80]}")
+
+
+def cmd_top(args):
+    """Show top commands."""
+    try:
+        db = get_db(args.config)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    stats = CommandStats(db)
+    commands = stats.get_top_commands(args.limit, user=args.user)
+
+    print(f"\nTop {len(commands)} Commands:")
+    for i, cmd in enumerate(commands, 1):
+        print(f"  {i:2}. {cmd['command']:20} ({cmd['count']:>5}x)")
+
+
+def cmd_users(args):
+    """Show top users."""
+    try:
+        db = get_db(args.config)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    stats = CommandStats(db)
+    user_stats = stats.get_top_users(args.limit)
+
+    print(f"\nTop {len(user_stats)} Users:")
+    for i, user in enumerate(user_stats, 1):
+        print(f"  {i:2}. {user['username']:15} ({user['command_count']:>5} commands, {user['unique_commands']} unique)")
+
+
+def cmd_risky(args):
+    """Show risky commands."""
+    try:
+        db = get_db(args.config)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    stats = CommandStats(db)
+    commands = stats.get_risk_commands(args.limit)
+
+    if not commands:
+        print("No risky commands found.")
+        return
+
+    print(f"\nRisky Commands ({len(commands)}):")
+    for cmd in commands:
+        print(f"  [{cmd['risk_level'].upper():^8}] {cmd['username']}: {cmd['full_command'][:70]}")
+
+
+def cmd_summary(args):
+    """Show text summary report."""
+    try:
+        db = get_db(args.config)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    stats = CommandStats(db)
+
+    start_time = None
+    end_time = None
+    if args.days:
+        start_time = datetime.now() - timedelta(days=args.days)
+        end_time = datetime.now()
+
+    try:
+        print(stats.get_summary_report())
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+
+
+def cmd_export(args):
+    """Export command data."""
+    try:
+        db = get_db(args.config)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    reporter = JSONReporter(db)
+
+    try:
+        reporter.export_commands_only(
+            output_path=args.output,
+            user=args.user,
+            limit=args.limit,
+            format=args.format,
+        )
+        print(f"Exported to: {args.output}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_cleanup(args):
+    """Clean up old records."""
+    if os.geteuid() != 0:
+        print("Error: This command requires root privileges.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        db = get_db(args.config)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.dry_run:
+        print(f"Dry run: would delete records older than {args.retention} days")
+        try:
+            stats = db.get_stats()
+            print(f"Total records in database: {stats['total_commands']}")
+        except Exception:
+            pass
+    else:
+        count = db.cleanup_old_records(args.retention)
+        print(f"Deleted {count} old records")
+        db.vacuum()
+        print("Database vacuumed")
 
 
 def main():
-    """Main entry point."""
-    cli(obj={})
+    parser = argparse.ArgumentParser(
+        prog="cmd-sniper",
+        description="Linux command audit and analysis tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s init                    Initialize database
+  %(prog)s start --method auditd    Start capturing
+  %(prog)s status                   Show status
+  %(prog)s report -o report.html    Generate report
+  %(prog)s query "docker"           Search commands
+        """,
+    )
+
+    parser.add_argument("-c", "--config", help="Path to configuration file")
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # start command
+    parser_start = subparsers.add_parser("start", help="Start command capture")
+    parser_start.add_argument("-m", "--method", choices=["auditd", "ebpf", "both"],
+                               default="auditd", help="Capture method")
+    parser_start.add_argument("-f", "--foreground", action="store_true",
+                               help="Run in foreground")
+    parser_start.add_argument("-d", "--daemon", action="store_true",
+                               help="Run as daemon")
+    parser_start.add_argument("--pid-file", default="/run/cmd-sniper/pid",
+                               help="PID file location")
+    parser_start.set_defaults(func=cmd_start)
+
+    # stop command
+    parser_stop = subparsers.add_parser("stop", help="Stop command capture")
+    parser_stop.add_argument("--pid-file", default="/run/cmd-sniper/pid",
+                              help="PID file location")
+    parser_stop.set_defaults(func=cmd_stop)
+
+    # status command
+    parser_status = subparsers.add_parser("status", help="Show capture status")
+    parser_status.set_defaults(func=cmd_status)
+
+    # init command
+    parser_init = subparsers.add_parser("init", help="Initialize cmd-sniper")
+    parser_init.set_defaults(func=cmd_init)
+
+    # report command
+    parser_report = subparsers.add_parser("report", help="Generate analysis report")
+    parser_report.add_argument("-o", "--output", default="report.html",
+                               help="Output file path")
+    parser_report.add_argument("-f", "--format", choices=["html", "json", "json-summary"],
+                               default="html", help="Report format")
+    parser_report.add_argument("--start", help="Start time (ISO format)")
+    parser_report.add_argument("--end", help="End time (ISO format)")
+    parser_report.add_argument("-d", "--days", type=int, help="Number of days to include")
+    parser_report.set_defaults(func=cmd_report)
+
+    # query command
+    parser_query = subparsers.add_parser("query", help="Search for commands matching pattern")
+    parser_query.add_argument("pattern", help="Search pattern")
+    parser_query.add_argument("-l", "--limit", type=int, default=50, help="Maximum results")
+    parser_query.add_argument("-u", "--user", type=int, help="Filter by user ID")
+    parser_query.add_argument("--json", action="store_true", help="Output as JSON")
+    parser_query.set_defaults(func=cmd_query)
+
+    # top command
+    parser_top = subparsers.add_parser("top", help="Show top commands")
+    parser_top.add_argument("-l", "--limit", type=int, default=20, help="Number of results")
+    parser_top.add_argument("-u", "--user", type=int, help="Filter by user ID")
+    parser_top.set_defaults(func=cmd_top)
+
+    # users command
+    parser_users = subparsers.add_parser("users", help="Show top users")
+    parser_users.add_argument("-l", "--limit", type=int, default=10, help="Number of results")
+    parser_users.set_defaults(func=cmd_users)
+
+    # risky command
+    parser_risky = subparsers.add_parser("risky", help="Show risky commands")
+    parser_risky.add_argument("-l", "--limit", type=int, default=10, help="Number of results")
+    parser_risky.set_defaults(func=cmd_risky)
+
+    # summary command
+    parser_summary = subparsers.add_parser("summary", help="Show text summary report")
+    parser_summary.add_argument("-d", "--days", type=int, default=7,
+                                help="Number of days to analyze")
+    parser_summary.set_defaults(func=cmd_summary)
+
+    # export command
+    parser_export = subparsers.add_parser("export", help="Export command data")
+    parser_export.add_argument("-f", "--format", choices=["json", "jsonl", "csv"],
+                                default="json", help="Export format")
+    parser_export.add_argument("-o", "--output", required=True, help="Output file")
+    parser_export.add_argument("-u", "--user", type=int, help="Filter by user ID")
+    parser_export.add_argument("-l", "--limit", type=int, default=100000, help="Maximum records")
+    parser_export.set_defaults(func=cmd_export)
+
+    # cleanup command
+    parser_cleanup = subparsers.add_parser("cleanup", help="Clean up old records")
+    parser_cleanup.add_argument("-r", "--retention", type=int, default=90,
+                               help="Days to keep")
+    parser_cleanup.add_argument("-n", "--dry-run", action="store_true",
+                               help="Show what would be deleted")
+    parser_cleanup.set_defaults(func=cmd_cleanup)
+
+    args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
+
+    args.func(args)
 
 
 if __name__ == "__main__":

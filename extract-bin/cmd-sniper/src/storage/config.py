@@ -1,11 +1,12 @@
 """
 Configuration management for cmd-sniper.
+Uses JSON instead of YAML for zero dependencies.
 """
 import os
-import yaml
+import json
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Optional, List
+from dataclasses import dataclass, field, asdict
+from typing import Optional, List, Any
 
 
 @dataclass
@@ -67,20 +68,31 @@ class Config:
 
     @classmethod
     def from_file(cls, path: str) -> "Config":
-        """Load configuration from YAML file."""
+        """Load configuration from JSON file."""
         config_file = Path(path)
         if not config_file.exists():
-            # Return config with user-local paths for non-root users
             return cls._get_default_config()
 
-        with open(config_file, "r") as f:
-            data = yaml.safe_load(f) or {}
+        try:
+            with open(config_file, "r") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return cls._get_default_config()
+
+        if not isinstance(data, dict):
+            data = {}
+
+        # Parse nested configs
+        capture_data = data.get("capture", {})
+        storage_data = data.get("storage", {})
+        analysis_data = data.get("analysis", {})
+        report_data = data.get("report", {})
 
         return cls(
-            capture=CaptureConfig(**data.get("capture", {})),
-            storage=StorageConfig(**data.get("storage", {})),
-            analysis=AnalysisConfig(**data.get("analysis", {})),
-            report=ReportConfig(**data.get("report", {})),
+            capture=CaptureConfig(**capture_data),
+            storage=StorageConfig(**storage_data),
+            analysis=AnalysisConfig(**analysis_data),
+            report=ReportConfig(**report_data),
             config_dir=data.get("config_dir", "/etc/cmd-sniper"),
             runtime_dir=data.get("runtime_dir", "/run/cmd-sniper"),
             log_dir=data.get("log_dir", "/var/log/cmd-sniper"),
@@ -109,7 +121,7 @@ class Config:
         return cls()
 
     def to_file(self, path: str):
-        """Save configuration to YAML file."""
+        """Save configuration to JSON file."""
         config_file = Path(path)
         config_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -124,7 +136,7 @@ class Config:
         }
 
         with open(config_file, "w") as f:
-            yaml.dump(data, f, default_flow_style=False)
+            json.dump(data, f, indent=2, default=str)
 
     def ensure_directories(self):
         """Create necessary directories if they don't exist."""
@@ -140,13 +152,19 @@ class Config:
 
 def get_default_config_path() -> str:
     """Get default configuration file path."""
-    # Check for user-local config first
-    user_config = Path.home() / ".config" / "cmd-sniper" / "config.yaml"
+    # Check for user-local config first (JSON format)
+    user_config = Path.home() / ".config" / "cmd-sniper" / "config.json"
     if user_config.exists():
         return str(user_config)
 
+    # Also check for old YAML config and migrate
+    old_yaml_config = Path.home() / ".config" / "cmd-sniper" / "config.yaml"
+    if old_yaml_config.exists():
+        # Could migrate here, for now just note it
+        pass
+
     # System-wide config
-    system_config = "/etc/cmd-sniper/config.yaml"
+    system_config = "/etc/cmd-sniper/config.json"
     if Path(system_config).exists():
         return system_config
 
