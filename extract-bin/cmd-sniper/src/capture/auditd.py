@@ -202,15 +202,35 @@ class AuditdCapture(CaptureBase):
                 if argc_match:
                     event["argc"] = int(argc_match.group(1))
 
-                # Parse arguments (format: a0="xxx" a1="xxx" ...)
-                arg_pattern = re.compile(r'a(\d+)="([^"]*)"')
-                args = {}
+                # Parse arguments (format: a0="xxx" a1="xxx" or a0='xxx' for truncated)
+                # Support both double and single quotes, and handle multi-line args
+                arg_pattern = re.compile(r'[a](\d+)=([\'"])([^\2]*?)\2')
                 for arg_match in arg_pattern.finditer(line):
                     idx = int(arg_match.group(1))
-                    args[idx] = arg_match.group(2)
+                    arg_value = arg_match.group(3)
 
-                # Reconstruct argv in order
-                event["argv"] = [args[i] for i in sorted(args.keys()) if i in args]
+                    # Append to existing arg if it was truncated (ends with ')
+                    if idx in event.get("_raw_args", {}):
+                        if event["_raw_args"][idx].endswith("'"):
+                            event["_raw_args"][idx] = event["_raw_args"][idx][:-1] + arg_value
+                        else:
+                            event["_raw_args"][idx] += arg_value
+                    else:
+                        if "_raw_args" not in event:
+                            event["_raw_args"] = {}
+                        event["_raw_args"][idx] = arg_value
+
+        # Reconstruct argv from collected arguments
+        if "_raw_args" in event:
+            max_idx = max(event["_raw_args"].keys()) if event["_raw_args"] else 0
+            argv = []
+            for i in range(max_idx + 1):
+                if i in event["_raw_args"]:
+                    argv.append(event["_raw_args"][i])
+                elif i < event["argc"]:
+                    argv.append(f"<arg_{i}>")
+            event["argv"] = argv
+            del event["_raw_args"]  # Clean up temporary storage
 
         # Validate we have the minimum required data
         if not event["argv"] or event["uid"] is None:

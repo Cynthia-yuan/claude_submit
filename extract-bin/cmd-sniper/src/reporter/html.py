@@ -45,6 +45,15 @@ class HTMLReporter:
 
     def _gather_data(self, start_time: Optional[datetime], end_time: Optional[datetime]) -> dict:
         """Gather all data for the report."""
+        # Get recent actual command records with full details
+        recent_commands = self.db.get_commands(
+            limit=500,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        # Sort by timestamp descending (most recent first)
+        recent_commands.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+
         return {
             "overview": self.stats.get_overview(),
             "top_commands": self.stats.get_top_commands(100, start_time=start_time, end_time=end_time),
@@ -60,6 +69,7 @@ class HTMLReporter:
             "time_patterns": self.pattern.detect_time_patterns(),
             "error_patterns": self.pattern.detect_error_patterns(),
             "ssh_patterns": self.pattern.detect_ssh_patterns(),
+            "recent_commands": recent_commands,
             "generated_at": datetime.now().isoformat(),
             "start_time": start_time.isoformat() if start_time else None,
             "end_time": end_time.isoformat() if end_time else None,
@@ -323,6 +333,7 @@ class HTMLReporter:
                 <button class="tab" onclick="showTab('timeline')">Timeline</button>
                 <button class="tab" onclick="showTab('security')">Security</button>
                 <button class="tab" onclick="showTab('patterns')">Patterns</button>
+                <button class="tab" onclick="showTab('details')">Details</button>
             </div>
 
             <!-- Commands Tab -->
@@ -395,6 +406,30 @@ class HTMLReporter:
                 <div class="section">
                     <h2 class="section-title">Risky Commands</h2>
                     {self._render_risk_commands(data['risk_commands'])}
+                </div>
+            </div>
+
+            <!-- Details Tab -->
+            <div id="details" class="tab-content">
+                <div class="section">
+                    <h2 class="section-title">Recent Command Details</h2>
+                    <p style="color: #666; margin-bottom: 15px;">Showing most recent command executions with full arguments</p>
+                    <input type="text" class="search-box" id="details-search" placeholder="Search..." onkeyup="filterTable('details-table', this.value)">
+                    <div style="overflow-x: auto; max-height: 600px;">
+                        <table id="details-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>User</th>
+                                    <th>Full Command</th>
+                                    <th>PID</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {self._render_details_rows(data.get('recent_commands', []))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -497,10 +532,14 @@ class HTMLReporter:
         """Render table rows for commands."""
         rows = []
         for i, cmd in enumerate(commands[:100], 1):
+            # Show base command, but include full example as tooltip
+            full_example = cmd.get('full_command', cmd['command'])
+            # Truncate if too long for display
+            display_cmd = full_example[:80] + "..." if len(full_example) > 80 else full_example
             rows.append(f"""
-                <tr>
+                <tr title="{self._escape_html(full_example)}">
                     <td>{i}</td>
-                    <td><span class="command-cell">{self._escape_html(cmd['command'])}</span></td>
+                    <td><span class="command-cell">{self._escape_html(display_cmd)}</span></td>
                     <td>{cmd['count']:,}</td>
                     <td>{cmd.get('unique_users', 1)}</td>
                 </tr>
@@ -564,6 +603,28 @@ class HTMLReporter:
                 <tr>
                     <td><span class="command-cell">{self._escape_html(seq['sequence'])}</span></td>
                     <td>{seq['count']}</td>
+                </tr>
+            """)
+        return "".join(rows)
+
+    def _render_details_rows(self, commands: List[dict]) -> str:
+        """Render detailed command records with full arguments."""
+        rows = []
+        for cmd in commands[:200]:  # Show more detailed records
+            timestamp = cmd.get('timestamp', '')[:19]
+            username = cmd.get('username', 'unknown')
+            full_cmd = cmd.get('full_command', cmd.get('command', ''))
+            pid = cmd.get('pid', '')
+
+            # Truncate very long commands for display but keep in tooltip
+            display_cmd = full_cmd[:150] + "..." if len(full_cmd) > 150 else full_cmd
+
+            rows.append(f"""
+                <tr title="{self._escape_html(full_cmd)}">
+                    <td style="white-space: nowrap; font-size: 0.9em; color: #666;">{timestamp}</td>
+                    <td>{self._escape_html(username)}</td>
+                    <td><span class="command-cell">{self._escape_html(display_cmd)}</span></td>
+                    <td style="font-size: 0.9em;">{pid}</td>
                 </tr>
             """)
         return "".join(rows)
