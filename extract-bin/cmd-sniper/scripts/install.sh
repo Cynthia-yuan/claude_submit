@@ -122,10 +122,11 @@ echo "Installing CLI script..."
 
 # Copy source files first
 echo "Copying source files..."
+mkdir -p "$LIB_DIR"
 cp -r "$SCRIPT_DIR/src" "$LIB_DIR/cmd-sniper/"
 cp -r "$SCRIPT_DIR/ebpf" "$LIB_DIR/cmd-sniper/"
 
-# Create wrapper script with correct paths
+# Create wrapper script - directly call the CLI
 cat > "$INSTALL_DIR/bin/cmd-sniper" << EOF
 #!/bin/bash
 # cmd-sniper wrapper script
@@ -133,8 +134,8 @@ cat > "$INSTALL_DIR/bin/cmd-sniper" << EOF
 # Set Python path to include our modules
 export PYTHONPATH="$LIB_DIR/cmd-sniper:\$PYTHONPATH"
 
-# Run the CLI
-exec $PYTHON -m cmdsniper "\$@"
+# Run the CLI directly
+exec $PYTHON "$LIB_DIR/cmd-sniper/src/cli.py" "\$@"
 EOF
 chmod +x "$INSTALL_DIR/bin/cmd-sniper"
 
