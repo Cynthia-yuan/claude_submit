@@ -41,11 +41,31 @@ sudo ./scripts/install.sh
 
 ## 使用方法
 
+### 快速开始（无需安装）
+
+```bash
+cd cmd-sniper
+
+# 直接运行（需要 Python 3.7+）
+python cmd-sniper.py init
+python cmd-sniper.py status
+```
+
+### 完整安装
+
+```bash
+# 运行安装脚本
+sudo ./scripts/install.sh
+```
+
 ### 启动捕获
 
 ```bash
-# 使用 auditd 方式启动
+# 已安装用户
 sudo cmd-sniper start --method auditd
+
+# 未安装（直接运行）
+sudo python cmd-sniper.py start --method auditd
 
 # 使用 eBPF 方式启动
 sudo cmd-sniper start --method ebpf
