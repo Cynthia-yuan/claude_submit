@@ -385,7 +385,7 @@ class AuditdCapture(CaptureBase):
                 if not line:
                     continue
 
-                if line.startswith----"):
+                if line.startswith("----"):
                     if current_event:
                         event = self._parse_execve_event(current_event)
                         if event:
