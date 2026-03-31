@@ -5,7 +5,7 @@ import sqlite3
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import List, Optional, Any
 from contextlib import contextmanager
 from dataclasses import dataclass, asdict
 
@@ -25,9 +25,9 @@ class CommandRecord:
     capture_method: str = "auditd"
     hostname: str = ""
     argv: Optional[List[str]] = None
-    env: Optional[Dict[str, str]] = None
+    env: Optional[dict[str, str]] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         d = asdict(self)
         d["timestamp"] = self.timestamp.isoformat()
@@ -168,7 +168,7 @@ class Database:
             )
             return cursor.rowcount
 
-    def get_command_by_id(self, cmd_id: int) -> Optional[Dict]:
+    def get_command_by_id(self, cmd_id: int) -> Optional[dict]:
         """Get a single command by ID."""
         with self.get_connection() as conn:
             row = conn.execute("SELECT * FROM commands WHERE id = ?", (cmd_id,)).fetchone()
@@ -186,7 +186,7 @@ class Database:
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
         search: Optional[str] = None,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Query commands with filters."""
         query = "SELECT * FROM commands WHERE 1=1"
         params = []
@@ -229,7 +229,7 @@ class Database:
         user: Optional[int] = None,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Get command execution frequency statistics."""
         query = """
             SELECT command, full_command, COUNT(*) as count,
@@ -262,7 +262,7 @@ class Database:
         limit: int = 100,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Get user activity statistics."""
         query = """
             SELECT uid, username, COUNT(*) as command_count,
@@ -293,7 +293,7 @@ class Database:
         granularity: str = "hour",
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Get command distribution over time."""
         if granularity == "hour":
             fmt = "%Y-%m-%d %H:00"
@@ -325,7 +325,7 @@ class Database:
             rows = conn.execute(query, params).fetchall()
             return [dict(row) for row in rows]
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Get overall database statistics."""
         with self.get_connection() as conn:
             total = conn.execute("SELECT COUNT(*) as count FROM commands").fetchone()["count"]
@@ -400,7 +400,7 @@ class Database:
                 (status, session_id),
             )
 
-    def get_active_sessions(self) -> List[Dict]:
+    def get_active_sessions(self) -> List[dict]:
         """Get all active sessions."""
         with self.get_connection() as conn:
             rows = conn.execute(

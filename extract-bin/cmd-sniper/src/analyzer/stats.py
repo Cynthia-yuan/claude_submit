@@ -2,7 +2,7 @@
 Statistical analysis module for captured commands.
 """
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
+from typing import List, Optional, Tuple, Any
 from collections import Counter, defaultdict
 import statistics
 
@@ -17,7 +17,7 @@ class CommandStats:
         self.db = db
         self.parser = CommandParser()
 
-    def get_overview(self) -> Dict[str, Any]:
+    def get_overview(self) -> dict[str, Any]:
         """Get overall statistics overview."""
         stats = self.db.get_stats()
 
@@ -45,7 +45,7 @@ class CommandStats:
         user: Optional[int] = None,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Get most frequently executed commands."""
         return self.db.get_command_frequency(limit, user, start_time, end_time)
 
@@ -54,7 +54,7 @@ class CommandStats:
         limit: int = 50,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Get most active users."""
         return self.db.get_user_activity(limit, start_time, end_time)
 
@@ -62,7 +62,7 @@ class CommandStats:
         self,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Get command distribution by category."""
         commands = self.db.get_commands(
             limit=100000,
@@ -82,7 +82,7 @@ class CommandStats:
         granularity: str = "hour",
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Get command execution time distribution."""
         return self.db.get_time_distribution(granularity, start_time, end_time)
 
@@ -90,7 +90,7 @@ class CommandStats:
         self,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-    ) -> Dict[int, Dict[int, int]]:
+    ) -> dict[int, dict[int, int]]:
         """
         Get activity heatmap by hour and day of week.
 
@@ -115,7 +115,7 @@ class CommandStats:
 
         return dict(heatmap)
 
-    def get_command_for_user(self, uid: int) -> Dict:
+    def get_command_for_user(self, uid: int) -> dict:
         """Get detailed statistics for a specific user."""
         # Get user's commands
         commands = self.db.get_commands(limit=1000000, user=uid)
@@ -179,7 +179,7 @@ class CommandStats:
         limit: int = 100,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Get potentially risky commands."""
         commands = self.db.get_commands(
             limit=100000,
@@ -209,7 +209,7 @@ class CommandStats:
 
         return risk_commands[:limit]
 
-    def get_command_variance(self) -> Dict[str, Any]:
+    def get_command_variance(self) -> dict[str, Any]:
         """
         Analyze command diversity/variance.
 
@@ -252,7 +252,7 @@ class CommandStats:
         self,
         user: Optional[int] = None,
         limit: int = 50,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """
         Find common command sequences (chains).
 
@@ -300,7 +300,7 @@ class CommandStats:
     def get_peak_hours(
         self,
         user: Optional[int] = None,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Get peak activity hours."""
         commands = self.db.get_commands(
             limit=1000000,
@@ -320,7 +320,7 @@ class CommandStats:
             for h, c in hour_counts.most_common()
         ]
 
-    def compare_users(self, uid1: int, uid2: int) -> Dict:
+    def compare_users(self, uid1: int, uid2: int) -> dict:
         """Compare command patterns between two users."""
         stats1 = self.get_command_for_user(uid1)
         stats2 = self.get_command_for_user(uid2)
@@ -350,7 +350,7 @@ class CommandStats:
         self,
         command: str,
         days: int = 30,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Get usage trend for a specific command over time."""
         end_time = datetime.now()
         start_time = end_time - timedelta(days=days)

@@ -3,7 +3,7 @@ JSON export module for cmd-sniper.
 """
 import json
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import List, Any, Optional
 from pathlib import Path
 
 from storage import Database
@@ -63,7 +63,7 @@ class JSONReporter:
 
         return output_path
 
-    def _get_overview(self) -> Dict:
+    def _get_overview(self) -> dict:
         """Get overview statistics."""
         return self.stats.get_overview()
 
@@ -72,7 +72,7 @@ class JSONReporter:
         limit: int,
         start_time: Optional[datetime],
         end_time: Optional[datetime],
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """Get command records."""
         return self.db.get_commands(
             limit=limit,
@@ -160,6 +160,6 @@ class JSONReporter:
 
         return output_path
 
-    def to_string(self, data: Dict) -> str:
+    def to_string(self, data: dict) -> str:
         """Convert data to JSON string."""
         return json.dumps(data, indent=2, default=str)

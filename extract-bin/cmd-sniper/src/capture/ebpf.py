@@ -189,7 +189,7 @@ TRACEPOINT_PROBE(sched, sched_process_exec) {
 
         self._close_session("stopped")
 
-    def _event_to_record(self, event: Dict) -> Optional:
+    def _event_to_record(self, event: dict) -> Optional:
         """Convert eBPF event to CommandRecord."""
         from storage import CommandRecord
 

@@ -3,7 +3,7 @@ Audit log parser utilities.
 """
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 
 # Audit log line patterns
@@ -38,7 +38,7 @@ class AuditEvent:
         """Check if event has all required fields."""
         return bool(self.argv and self.uid is not None)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert event to dictionary."""
         return {
             "timestamp": self.timestamp,
@@ -207,9 +207,9 @@ class AusearchParser:
 
     def __init__(self):
         self._current_lines: List[str] = []
-        self._events: List[Dict] = []
+        self._events: List[dict] = []
 
-    def parse_line(self, line: str) -> Optional[Dict]:
+    def parse_line(self, line: str) -> Optional[dict]:
         """
         Parse a line from ausearch output.
 
@@ -226,7 +226,7 @@ class AusearchParser:
         self._current_lines.append(line)
         return None
 
-    def _finish_event(self) -> Optional[Dict]:
+    def _finish_event(self) -> Optional[dict]:
         """Finish current event and parse it."""
         if not self._current_lines:
             return None
@@ -235,7 +235,7 @@ class AusearchParser:
         self._current_lines = []
         return event
 
-    def _parse_event(self, lines: List[str]) -> Optional[Dict]:
+    def _parse_event(self, lines: List[str]) -> Optional[dict]:
         """Parse event from accumulated lines."""
         event = {
             "timestamp": None,
@@ -287,7 +287,7 @@ class AusearchParser:
             return event
         return None
 
-    def _parse_ausearch_syscall(self, line: str, event: Dict):
+    def _parse_ausearch_syscall(self, line: str, event: dict):
         """Parse syscall info from ausearch output."""
         # ausearch format: SYSCALL arch=... syscall=... success=yes exit=0 ...
         parts = line.split()
@@ -308,7 +308,7 @@ class AusearchParser:
             elif part.startswith("success="):
                 event["success"] = "yes" in part
 
-    def _parse_ausearch_execve(self, line: str, event: Dict):
+    def _parse_ausearch_execve(self, line: str, event: dict):
         """Parse execve args from ausearch output."""
         # Format: argc=1 a0="ls" a1="-la" ...
         match = re.search(r'argc=(\d+)', line)
@@ -322,7 +322,7 @@ class AusearchParser:
 
             event["argv"] = [args[i] for i in range(argc) if i in args]
 
-    def parse_text(self, text: str) -> List[Dict]:
+    def parse_text(self, text: str) -> List[dict]:
         """Parse ausearch output text."""
         events = []
         for line in text.split("\n"):

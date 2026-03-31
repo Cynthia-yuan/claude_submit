@@ -3,7 +3,7 @@ Pattern recognition module for command analysis.
 """
 import re
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set, Tuple, Any
+from typing import List, Optional, Set, Tuple, Any
 from collections import defaultdict
 from difflib import SequenceMatcher
 
@@ -18,7 +18,7 @@ class PatternDetector:
         self.db = db
         self.parser = CommandParser()
 
-    def detect_recurring_tasks(self, min_occurrences: int = 5) -> List[Dict]:
+    def detect_recurring_tasks(self, min_occurrences: int = 5) -> List[dict]:
         """
         Detect tasks that run repeatedly.
 
@@ -83,7 +83,7 @@ class PatternDetector:
 
         return sorted(recurring, key=lambda x: x["count"], reverse=True)
 
-    def detect_workflow_patterns(self, user: Optional[int] = None) -> List[Dict]:
+    def detect_workflow_patterns(self, user: Optional[int] = None) -> List[dict]:
         """
         Detect common workflow patterns (command sequences).
 
@@ -144,7 +144,7 @@ class PatternDetector:
         self,
         user: Optional[int] = None,
         z_threshold: float = 2.0,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """
         Detect anomalous command usage.
 
@@ -193,7 +193,7 @@ class PatternDetector:
 
         return sorted(anomalies, key=lambda x: x["count"])[:100]
 
-    def detect_command_families(self) -> Dict[str, List[str]]:
+    def detect_command_families(self) -> dict[str, List[str]]:
         """
         Group similar commands into families.
 
@@ -218,7 +218,7 @@ class PatternDetector:
         command: str,
         threshold: float = 0.7,
         limit: int = 20,
-    ) -> List[Dict]:
+    ) -> List[dict]:
         """
         Find commands similar to the given command.
 
@@ -244,7 +244,7 @@ class PatternDetector:
 
         return sorted(similarities, key=lambda x: x["similarity"], reverse=True)[:limit]
 
-    def detect_learning_curve(self, uid: int) -> Dict:
+    def detect_learning_curve(self, uid: int) -> dict:
         """
         Analyze a user's command usage evolution over time.
 
@@ -295,7 +295,7 @@ class PatternDetector:
             "trend_sudo": periods[-1]["sudo_ratio"] < periods[0]["sudo_ratio"],
         }
 
-    def detect_time_patterns(self, uid: Optional[int] = None) -> List[Dict]:
+    def detect_time_patterns(self, uid: Optional[int] = None) -> List[dict]:
         """
         Detect temporal patterns in command usage.
 
@@ -340,7 +340,7 @@ class PatternDetector:
             "hour_categories": hour_top_category,
         }
 
-    def detect_error_patterns(self) -> List[Dict]:
+    def detect_error_patterns(self) -> List[dict]:
         """
         Detect patterns in failed commands.
 
@@ -383,7 +383,7 @@ class PatternDetector:
 
         return sorted(patterns, key=lambda x: x["failure_count"], reverse=True)
 
-    def detect_ssh_patterns(self) -> List[Dict]:
+    def detect_ssh_patterns(self) -> List[dict]:
         """
         Detect SSH connection patterns.
 

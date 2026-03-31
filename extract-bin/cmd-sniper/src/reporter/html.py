@@ -3,7 +3,7 @@ HTML report generator for cmd-sniper.
 """
 import json
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import List, Any, Optional
 from pathlib import Path
 
 from storage import Database
@@ -43,7 +43,7 @@ class HTMLReporter:
 
         return output_path
 
-    def _gather_data(self, start_time: Optional[datetime], end_time: Optional[datetime]) -> Dict:
+    def _gather_data(self, start_time: Optional[datetime], end_time: Optional[datetime]) -> dict:
         """Gather all data for the report."""
         return {
             "overview": self.stats.get_overview(),
@@ -65,7 +65,7 @@ class HTMLReporter:
             "end_time": end_time.isoformat() if end_time else None,
         }
 
-    def _render_html(self, title: str, data: Dict) -> str:
+    def _render_html(self, title: str, data: dict) -> str:
         """Render the HTML report."""
         return f"""<!DOCTYPE html>
 <html lang="en">
@@ -493,7 +493,7 @@ class HTMLReporter:
 </body>
 </html>"""
 
-    def _render_command_rows(self, commands: List[Dict]) -> str:
+    def _render_command_rows(self, commands: List[dict]) -> str:
         """Render table rows for commands."""
         rows = []
         for i, cmd in enumerate(commands[:100], 1):
@@ -507,7 +507,7 @@ class HTMLReporter:
             """)
         return "".join(rows)
 
-    def _render_user_rows(self, users: List[Dict]) -> str:
+    def _render_user_rows(self, users: List[dict]) -> str:
         """Render table rows for users."""
         rows = []
         for i, user in enumerate(users[:50], 1):
@@ -522,7 +522,7 @@ class HTMLReporter:
             """)
         return "".join(rows)
 
-    def _render_risk_commands(self, commands: List[Dict]) -> str:
+    def _render_risk_commands(self, commands: List[dict]) -> str:
         """Render risky commands table."""
         if not commands:
             return "<p>No risky commands detected.</p>"
@@ -556,7 +556,7 @@ class HTMLReporter:
             </table>
         """
 
-    def _render_sequence_rows(self, sequences: List[Dict]) -> str:
+    def _render_sequence_rows(self, sequences: List[dict]) -> str:
         """Render command sequences."""
         rows = []
         for seq in sequences[:30]:

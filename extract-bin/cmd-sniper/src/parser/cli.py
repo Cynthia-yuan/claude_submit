@@ -3,7 +3,7 @@ Command line parsing utilities.
 """
 import re
 import shlex
-from typing import List, Tuple, Optional, Dict, Set
+from typing import List, Tuple, Optional, Set
 from pathlib import Path
 
 
@@ -101,12 +101,12 @@ class CommandParser:
                 re.compile(p) for p in patterns
             ]
 
-    def parse(self, command: str) -> Dict:
+    def parse(self, command: str) -> dict:
         """
         Parse a command string into components.
 
         Returns:
-            Dict with:
+            dict with:
                 - base_command: The main executable (e.g., "sudo" -> "apt")
                 - command: The first argument (actual command)
                 - arguments: List of arguments
@@ -258,7 +258,7 @@ class CommandParser:
             and set(parsed1["flags"]) == set(parsed2["flags"])
         )
 
-    def extract_patterns(self, commands: List[str]) -> Dict[str, int]:
+    def extract_patterns(self, commands: List[str]) -> dict[str, int]:
         """
         Extract common command patterns from a list of commands.
 
@@ -310,7 +310,7 @@ class CommandChain:
 
     def __init__(self, window_size: int = 10):
         self.window_size = window_size
-        self._chains: Dict[str, int] = {}
+        self._chains: dict[str, int] = {}
 
     def add_command(self, command: str, previous_commands: List[str]):
         """

@@ -7,7 +7,7 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Generator
+from typing import Optional, List, Generator
 import pwd
 
 from .base import CaptureBase, CaptureError, CaptureNotAvailableError
@@ -149,7 +149,7 @@ class AuditdCapture(CaptureBase):
         self._log_file_pos = self._log_file_handle.tell()
         return new_lines
 
-    def _parse_execve_event(self, event_lines: List[str]) -> Optional[Dict]:
+    def _parse_execve_event(self, event_lines: List[str]) -> Optional[dict]:
         """
         Parse an execve event from audit log lines.
 
@@ -249,7 +249,7 @@ class AuditdCapture(CaptureBase):
         if current_event:
             yield current_event
 
-    def _record_to_command(self, event: Dict) -> Optional:
+    def _record_to_command(self, event: dict) -> Optional:
         """Convert a parsed event to a CommandRecord."""
         from storage import CommandRecord
 
