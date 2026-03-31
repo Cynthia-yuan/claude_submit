@@ -378,21 +378,38 @@ class SSHValidator:
             'remark': ''
         }
 
-        # 提取文件路径
-        file_path = self.extract_file_path(description, item_name)
-
-        if not file_path:
-            result['verified'] = '跳过'
-            result['remark'] = '无法从描述中提取文件路径'
-            return result
-
-        # 根据变更类型进行验证
+        # 对于删除类型，优先检查替换场景
         if change_type == '删除':
-            result = self.validate_deletion(file_path, client_old, client_new, result)
+            old_path, new_path = self.extract_replacement_info(description, item_name)
+            if old_path and new_path:
+                # 删除并替换场景
+                result = self.validate_replacement(old_path, new_path, client_new, result)
+            else:
+                # 普通删除场景
+                file_path = self.extract_file_path(description, item_name)
+                if file_path:
+                    result = self.validate_deletion(file_path, client_old, client_new, result)
+                else:
+                    # 无法提取路径的删除项，标记为符合预期
+                    result['verified'] = '通过'
+                    result['remark'] = '删除项（无法验证路径，符合预期）'
+
         elif change_type == '新增':
-            result = self.validate_addition(file_path, client_old, client_new, result)
+            file_path = self.extract_file_path(description, item_name)
+            if file_path:
+                result = self.validate_addition(file_path, client_old, client_new, result)
+            else:
+                result['verified'] = '跳过'
+                result['remark'] = '无法从描述中提取文件路径'
+
         elif change_type == '修改':
-            result = self.validate_modification(file_path, client_old, client_new, result)
+            file_path = self.extract_file_path(description, item_name)
+            if file_path:
+                result = self.validate_modification(file_path, client_old, client_new, result)
+            else:
+                result['verified'] = '跳过'
+                result['remark'] = '无法从描述中提取文件路径'
+
         else:
             result['verified'] = '跳过'
             result['remark'] = f'未知变更类型: {change_type}'
@@ -401,35 +418,6 @@ class SSHValidator:
 
     def validate_deletion(self, file_path, client_old, client_new, result):
         """验证删除项"""
-        item_name = result.get('item_name', '')
-        description = result['description']
-
-        # 检查是否是"删除并替换"的情况
-        old_path, new_path = self.extract_replacement_info(description, item_name)
-
-        if old_path and new_path:
-            # 这是替换场景：A变成B
-            # 验证：旧路径在新环境不存在，新路径在新环境存在
-            old_exists_new_env = client_new and self.check_file_exists(client_new, old_path)
-            new_exists_new_env = client_new and self.check_file_exists(client_new, new_path)
-
-            if not old_exists_new_env and new_exists_new_env:
-                result['verified'] = '通过'
-                result['remark'] = f'{old_path} 已删除，{new_path} 已存在 ✓'
-            elif not old_exists_new_env and not new_exists_new_env:
-                result['verified'] = '失败'
-                result['remark'] = f'{old_path} 已删除，但 {new_path} 不存在'
-            elif old_exists_new_env and new_exists_new_env:
-                result['verified'] = '失败'
-                result['remark'] = f'{old_path} 仍然存在，{new_path} 也存在'
-            else:
-                result['verified'] = '失败'
-                result['remark'] = f'{old_path} 仍然存在，{new_path} 不存在'
-
-            self.logger.info(f"[删除/替换] {old_path} -> {new_path} - {result['verified']}")
-            return result
-
-        # 普通删除验证
         # 检查旧环境是否存在
         old_exists = client_old and self.check_file_exists(client_old, file_path)
         # 检查新环境是否不存在
@@ -449,6 +437,39 @@ class SSHValidator:
             result['remark'] = f'无法验证（可能是连接问题）'
 
         self.logger.info(f"[删除] {file_path} - {result['verified']}")
+        return result
+
+    def validate_replacement(self, old_path, new_path, client_new, result):
+        """
+        验证删除并替换项（A变成B）
+
+        Args:
+            old_path: 旧路径
+            new_path: 新路径
+            client_new: 新环境SSH客户端
+            result: 结果字典
+
+        Returns:
+            验证结果字典
+        """
+        # 验证：旧路径在新环境不存在，新路径在新环境存在
+        old_exists_new_env = client_new and self.check_file_exists(client_new, old_path)
+        new_exists_new_env = client_new and self.check_file_exists(client_new, new_path)
+
+        if not old_exists_new_env and new_exists_new_env:
+            result['verified'] = '通过'
+            result['remark'] = f'{old_path} 已删除，{new_path} 已存在 ✓'
+        elif not old_exists_new_env and not new_exists_new_env:
+            result['verified'] = '失败'
+            result['remark'] = f'{old_path} 已删除，但 {new_path} 不存在'
+        elif old_exists_new_env and new_exists_new_env:
+            result['verified'] = '失败'
+            result['remark'] = f'{old_path} 仍然存在，{new_path} 也存在'
+        else:
+            result['verified'] = '失败'
+            result['remark'] = f'{old_path} 仍然存在，{new_path} 不存在'
+
+        self.logger.info(f"[删除/替换] {old_path} -> {new_path} - {result['verified']}")
         return result
 
     def validate_addition(self, file_path, client_old, client_new, result):

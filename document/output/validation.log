@@ -71,3 +71,10 @@
 2026-03-31 10:20:09,151 - INFO - 正在读取Sheet页: 修改
 2026-03-31 10:20:09,151 - INFO - 从Excel加载了 62 条变更记录
 2026-03-31 10:20:09,151 - INFO - HTML报告已生成: /Users/yuanlulu/claude/document/output/diff_report.html
+2026-03-31 10:27:31,726 - INFO - 正在读取Sheet页: 删除
+2026-03-31 10:27:31,727 - INFO - 正在读取Sheet页: 新增
+2026-03-31 10:27:31,727 - INFO - 正在读取Sheet页: 修改
+2026-03-31 10:27:31,727 - INFO - 从Excel加载了 62 条变更记录
+2026-03-31 10:27:31,727 - INFO - [删除] /opt/packages/perf.tar.gz - 警告
+2026-03-31 10:27:31,727 - INFO - [删除/替换] /sys/class/raw -> /sys/class/new_raw - 失败
+2026-03-31 10:27:31,727 - INFO - [新增] /opt/packages/agent-v2.0.jar - 失败
