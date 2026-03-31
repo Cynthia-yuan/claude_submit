@@ -5,9 +5,6 @@
 click>=8.0.0           # CLI framework
 PyYAML>=6.0            # Configuration files
 
-# Report generation
-Jinja2>=3.1.0          # HTML templating
-
 # eBPF support (bcc) - Install via system package manager:
 #   Ubuntu/Debian:  sudo apt-get install bpfcc-tools libbpfcc
 #   Fedora/RHEL:    sudo dnf install bcc
