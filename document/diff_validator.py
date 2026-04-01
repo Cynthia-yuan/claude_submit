@@ -748,13 +748,21 @@ class SSHValidator:
                 status_class = f' status-{result["verified"].lower()}' if result['verified'] in ['通过', '失败', '警告', '跳过'] else ''
                 impact = result.get('impact', '')
                 verified_status = result['verified']
+
+                # 替换占位符：将 <pid> 替换为 1
+                chapter = self._replace_placeholder(result["chapter"])
+                item_name = self._replace_placeholder(result["item_name"])
+                impact_display = self._replace_placeholder(impact)
+                description = self._replace_placeholder(result["description"])
+                remark = self._replace_placeholder(result["remark"])
+
                 html_parts.append(f'<tr data-status="{verified_status}">')
-                html_parts.append(f'<td>{result["chapter"]}</td>')
-                html_parts.append(f'<td>{result["item_name"]}</td>')
-                html_parts.append(f'<td>{impact}</td>')
-                html_parts.append(f'<td>{result["description"]}</td>')
+                html_parts.append(f'<td>{chapter}</td>')
+                html_parts.append(f'<td>{item_name}</td>')
+                html_parts.append(f'<td>{impact_display}</td>')
+                html_parts.append(f'<td>{description}</td>')
                 html_parts.append(f'<td class="status{status_class}">{result["verified"]}</td>')
-                html_parts.append(f'<td>{result["remark"]}</td>')
+                html_parts.append(f'<td>{remark}</td>')
                 html_parts.append(f'</tr>')
 
             html_parts.append('</tbody>')
@@ -813,6 +821,21 @@ class SSHValidator:
             elif result['verified'] == '待验证':
                 summary['pending'] += 1
         return summary
+
+    def _replace_placeholder(self, text):
+        """
+        替换文本中的占位符
+
+        Args:
+            text: 原始文本
+
+        Returns:
+            替换后的文本
+        """
+        if not text:
+            return text
+        # 替换 <pid> 为 1
+        return text.replace('<pid>', '1').replace('<PID>', '1')
 
     def get_html_css(self):
         """获取HTML CSS样式"""
