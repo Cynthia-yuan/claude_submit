@@ -91,3 +91,8 @@
 2026-03-31 10:58:16,008 - INFO - 正在读取Sheet页: 修改
 2026-03-31 10:58:16,008 - INFO - 从Excel加载了 62 条变更记录
 2026-03-31 10:58:16,008 - INFO - HTML报告已生成: /Users/yuanlulu/claude/document/output/diff_report.html
+2026-03-31 19:19:46,461 - INFO - 正在读取Sheet页: 删除
+2026-03-31 19:19:46,461 - INFO - 正在读取Sheet页: 新增
+2026-03-31 19:19:46,461 - INFO - 正在读取Sheet页: 修改
+2026-03-31 19:19:46,461 - INFO - 从Excel加载了 70 条变更记录
+2026-03-31 19:19:46,462 - INFO - HTML报告已生成: /Users/yuanlulu/claude/document/output/diff_report.html

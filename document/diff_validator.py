@@ -157,9 +157,10 @@ class SSHValidator:
                         'chapter': str(row[0]) if row[0] is not None else '',
                         'change_type': change_type,
                         'item_name': str(row[1]) if row[1] is not None else '',
-                        'description': str(row[2]) if len(row) > 2 and row[2] is not None else '',
-                        'verified': str(row[3]) if len(row) > 3 and row[3] is not None else '待验证',
-                        'remark': str(row[4]) if len(row) > 4 and row[4] is not None else ''
+                        'impact': str(row[2]) if len(row) > 2 and row[2] is not None else '',
+                        'description': str(row[3]) if len(row) > 3 and row[3] is not None else '',
+                        'verified': str(row[4]) if len(row) > 4 and row[4] is not None else '待验证',
+                        'remark': str(row[5]) if len(row) > 5 and row[5] is not None else ''
                     })
 
             self.changes = all_changes
@@ -373,6 +374,7 @@ class SSHValidator:
             'chapter': change['chapter'],
             'change_type': change_type,
             'item_name': item_name,
+            'impact': change.get('impact', ''),
             'description': description,
             'verified': '通过',
             'remark': ''
@@ -708,15 +710,17 @@ class SSHValidator:
             # 表格
             html_parts.append('<table class="data-table">')
             html_parts.append('<thead><tr>')
-            html_parts.append('<th>章节</th><th>变更项</th><th>描述</th><th>验证状态</th><th>备注</th>')
+            html_parts.append('<th>章节</th><th>变更项</th><th>影响说明</th><th>描述</th><th>验证状态</th><th>备注</th>')
             html_parts.append('</tr></thead>')
             html_parts.append('<tbody>')
 
             for result in results:
                 status_class = f' status-{result["verified"].lower()}' if result['verified'] in ['通过', '失败', '警告', '跳过'] else ''
+                impact = result.get('impact', '')
                 html_parts.append(f'<tr>')
                 html_parts.append(f'<td>{result["chapter"]}</td>')
                 html_parts.append(f'<td>{result["item_name"]}</td>')
+                html_parts.append(f'<td>{impact}</td>')
                 html_parts.append(f'<td>{result["description"]}</td>')
                 html_parts.append(f'<td class="status{status_class}">{result["verified"]}</td>')
                 html_parts.append(f'<td>{result["remark"]}</td>')

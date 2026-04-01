@@ -390,9 +390,9 @@ class DiffParser:
                         item_name = val
                         break
 
-            # 提取描述信息
+            # 提取描述信息（优先使用变更描述，其次使用描述）
             description = ''
-            for desc_key in ['变更描述', '描述', '影响说明', '说明']:
+            for desc_key in ['变更描述', '描述']:
                 if col_indices.get(desc_key) is not None and col_indices[desc_key] < len(values):
                     desc = values[col_indices[desc_key]]
                     if desc:
@@ -405,11 +405,17 @@ class DiffParser:
                 if path:
                     description = path
 
+            # 提取影响说明（单独列）
+            impact = ''
+            if col_indices.get('影响说明') is not None and col_indices['影响说明'] < len(values):
+                impact = values[col_indices['影响说明']]
+
             self.changes.append({
                 'chapter': table_chapter,
                 'change_type': change_type,
                 'item_name': item_name,
                 'description': description,
+                'impact': impact,
                 'change_type_raw': change_type_raw,
                 'verified': '待验证',
                 'remark': ''
@@ -537,7 +543,7 @@ class DiffParser:
         alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
         # 定义列头
-        headers = ['章节', '变更项', '描述', '验证状态', '备注']
+        headers = ['章节', '变更项', '影响说明', '描述', '验证状态', '备注']
 
         # 写入表头
         for col_num, header in enumerate(headers, 1):
@@ -552,12 +558,13 @@ class DiffParser:
         for row_num, change in enumerate(changes, 2):
             ws.cell(row=row_num, column=1, value=change['chapter'])
             ws.cell(row=row_num, column=2, value=change['item_name'])
-            ws.cell(row=row_num, column=3, value=change['description'])
-            ws.cell(row=row_num, column=4, value=change['verified'])
-            ws.cell(row=row_num, column=5, value=change['remark'])
+            ws.cell(row=row_num, column=3, value=change.get('impact', ''))
+            ws.cell(row=row_num, column=4, value=change['description'])
+            ws.cell(row=row_num, column=5, value=change['verified'])
+            ws.cell(row=row_num, column=6, value=change['remark'])
 
             # 应用边框和对齐
-            for col_num in range(1, 6):
+            for col_num in range(1, 7):
                 cell = ws.cell(row=row_num, column=col_num)
                 cell.border = thin_border
                 cell.alignment = alignment
@@ -565,9 +572,10 @@ class DiffParser:
         # 调整列宽
         ws.column_dimensions['A'].width = 35  # 章节
         ws.column_dimensions['B'].width = 30  # 变更项
-        ws.column_dimensions['C'].width = 50  # 描述
-        ws.column_dimensions['D'].width = 12  # 验证状态
-        ws.column_dimensions['E'].width = 30  # 备注
+        ws.column_dimensions['C'].width = 30  # 影响说明
+        ws.column_dimensions['D'].width = 40  # 描述
+        ws.column_dimensions['E'].width = 12  # 验证状态
+        ws.column_dimensions['F'].width = 30  # 备注
 
         # 冻结首行
         ws.freeze_panes = 'A2'
