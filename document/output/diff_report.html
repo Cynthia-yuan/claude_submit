@@ -20,6 +20,7 @@ body {
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     overflow: hidden;
+    width: 95%;
 }
 header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -62,17 +63,18 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 }
 .tab-button:hover { background: #e9ecef; color: #667eea; }
 .tab-button.active { color: #667eea; border-bottom-color: #667eea; background: white; }
-.content { padding: 30px; }
+.content { padding: 30px; overflow-x: auto; }
 .tab-content { display: none; }
 .tab-content.active { display: block; animation: fadeIn 0.3s; }
+.table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .summary { margin-bottom: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; }
 .summary h2 { font-size: 20px; margin-bottom: 15px; color: #495057; }
 .summary-stats { display: flex; flex-wrap: wrap; gap: 15px; }
-.data-table { width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.data-table { width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0,0,0,0.1); table-layout: fixed; overflow-wrap: break-word; }
 .data-table thead { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-.data-table th { padding: 15px; text-align: left; font-weight: 600; }
-.data-table td { padding: 12px 15px; border-bottom: 1px solid #e9ecef; word-wrap: break-word; white-space: normal; max-width: 300px; }
+.data-table th { padding: 15px; text-align: left; font-weight: 600; white-space: nowrap; }
+.data-table td { padding: 12px 15px; border-bottom: 1px solid #e9ecef; word-wrap: break-word; white-space: normal; overflow-wrap: break-word; hyphens: auto; }
 .data-table tbody tr:hover { background: #f8f9fa; }
 .status-pass { color: #28a745; font-weight: 600; }
 .status-fail { color: #dc3545; font-weight: 600; }
@@ -92,7 +94,7 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <div class="container">
 <header>
 <h1>diff_report</h1>
-<p class="timestamp">生成时间: 2026-04-01 10:11:28</p>
+<p class="timestamp">生成时间: 2026-04-01 16:45:54</p>
 </header>
 <div class="total-summary">
 <span class="stat-item">总计: <strong>70</strong></span>
@@ -114,7 +116,9 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <span class="stat-item">总计: <strong>30</strong></span>
 </div>
 </div>
+<div class="table-wrapper">
 <table class="data-table">
+<colgroup><col style="width:20%"><col style="width:15%"><col style="width:15%"><col style="width:25%"><col style="width:10%"><col style="width:15%"></colgroup>
 <thead><tr>
 <th>章节</th><th>变更项</th><th>影响说明</th><th>描述</th><th>验证状态</th><th>备注</th>
 </tr></thead>
@@ -362,6 +366,7 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 </tbody>
 </table>
 </div>
+</div>
 <div id="新增" class="tab-content ">
 <div class="summary">
 <h2>新增</h2>
@@ -369,7 +374,9 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <span class="stat-item">总计: <strong>29</strong></span>
 </div>
 </div>
+<div class="table-wrapper">
 <table class="data-table">
+<colgroup><col style="width:20%"><col style="width:15%"><col style="width:15%"><col style="width:25%"><col style="width:10%"><col style="width:15%"></colgroup>
 <thead><tr>
 <th>章节</th><th>变更项</th><th>影响说明</th><th>描述</th><th>验证状态</th><th>备注</th>
 </tr></thead>
@@ -609,6 +616,7 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 </tbody>
 </table>
 </div>
+</div>
 <div id="修改" class="tab-content ">
 <div class="summary">
 <h2>修改</h2>
@@ -616,7 +624,9 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <span class="stat-item">总计: <strong>11</strong></span>
 </div>
 </div>
+<div class="table-wrapper">
 <table class="data-table">
+<colgroup><col style="width:20%"><col style="width:15%"><col style="width:15%"><col style="width:25%"><col style="width:10%"><col style="width:15%"></colgroup>
 <thead><tr>
 <th>章节</th><th>变更项</th><th>影响说明</th><th>描述</th><th>验证状态</th><th>备注</th>
 </tr></thead>
@@ -711,6 +721,7 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 </tr>
 </tbody>
 </table>
+</div>
 </div>
 </div>
 </div>

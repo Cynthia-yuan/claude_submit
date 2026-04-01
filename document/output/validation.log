@@ -101,3 +101,10 @@
 2026-04-01 10:11:28,839 - INFO - 正在读取Sheet页: 修改
 2026-04-01 10:11:28,839 - INFO - 从Excel加载了 70 条变更记录
 2026-04-01 10:11:28,840 - INFO - HTML报告已生成: /Users/yuanlulu/claude/document/output/diff_report.html
+2026-04-01 16:45:54,326 - INFO - 正在读取Sheet页: 删除
+2026-04-01 16:45:54,327 - INFO - 正在读取Sheet页: 新增
+2026-04-01 16:45:54,327 - INFO - 正在读取Sheet页: 修改
+2026-04-01 16:45:54,327 - INFO - 从Excel加载了 70 条变更记录
+2026-04-01 16:45:54,327 - INFO - HTML报告已生成: /Users/yuanlulu/claude/document/output/diff_report.html
+2026-04-01 19:00:06,778 - INFO - [删除] /sys/class/raw - 警告
+2026-04-01 19:00:06,779 - INFO - [删除/替换] /sys/class/raw -> /sys/class/new_raw - 失败

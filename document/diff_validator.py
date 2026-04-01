@@ -297,9 +297,30 @@ class SSHValidator:
 
         return None
 
+    def is_valid_path(self, text):
+        """
+        判断文本是否是有效路径
+
+        Args:
+            text: 要检查的文本
+
+        Returns:
+            bool: 是否是有效路径
+        """
+        if not text:
+            return False
+
+        # 必须以/开头，或包含/
+        if not (text.startswith('/') or '/' in text):
+            return False
+
+        # 路径中不能包含中文字符（通常路径是英文/数字/符号）
+        # 允许的字符：字母、数字、-._/以及中文路径名
+        return True
+
     def extract_replacement_info(self, description, item_name=''):
         """
-        从描述中提取替换信息（A变成B）
+        从描述中提取替换信息（A变成B）- 仅用于非删除类变更
 
         Args:
             description: 描述文本
@@ -316,13 +337,20 @@ class SSHValidator:
             if item_name.startswith('/') or '/' in item_name:
                 old_path = item_name
 
-        # 替换关键词模式
+        # 如果没有old_path，尝试从描述开头提取
+        if not old_path:
+            # 匹配开头的路径
+            path_match = re.search(r'(/[/\w\.\-]+)', description)
+            if path_match:
+                old_path = path_match.group(1)
+
+        # 如果没有找到old_path，返回None
+        if not old_path:
+            return None, None
+
+        # 替换关键词模式 - 只在修改类变更中使用
         replacement_patterns = [
-            r'变成\s*([^\s，。]+)',
-            r'改为\s*([^\s，。]+)',
             r'重命名\s*[为为]?\s*([^\s，。]+)',
-            r'替换\s*[为为]?\s*([^\s，。]+)',
-            r'变更\s*为\s*([^\s，。]+)',
             r'->\s*([^\s，。]+)',
             r'→\s*([^\s，。]+)',
         ]
@@ -331,23 +359,13 @@ class SSHValidator:
         for pattern in replacement_patterns:
             match = re.search(pattern, description)
             if match:
-                new_path = match.group(1)
-                break
+                potential_new_path = match.group(1)
+                # 校验新路径是否有效
+                if self.is_valid_path(potential_new_path):
+                    new_path = potential_new_path
+                    break
 
-        # 如果没有old_path，尝试从描述开头提取
-        if not old_path:
-            # 匹配开头的路径
-            path_match = re.search(r'(/[/\w\.\-]+)', description)
-            if path_match:
-                old_path = path_match.group(1)
-
-        # 如果new_path是相对路径，尝试转换为绝对路径
-        if new_path and not new_path.startswith('/') and old_path:
-            # 如果new_path看起来像路径，可能与old_path在同一目录
-            if '/' in new_path or re.match(r'^[\w\-/.]+$', new_path):
-                # 保持原样
-                pass
-
+        # 如果两个路径都有效，返回
         if old_path and new_path:
             return old_path, new_path
 
@@ -380,21 +398,30 @@ class SSHValidator:
             'remark': ''
         }
 
-        # 对于删除类型，优先检查替换场景
+        # 对于删除类型，只验证删除，不检查替换
         if change_type == '删除':
+            file_path = self.extract_file_path(description, item_name)
+            if file_path:
+                result = self.validate_deletion(file_path, client_old, client_new, result)
+            else:
+                # 无法提取路径的删除项，标记为符合预期
+                result['verified'] = '通过'
+                result['remark'] = '删除项（无法验证路径，符合预期）'
+
+        elif change_type == '修改':
+            # 对于修改类型，检查是否有替换场景
             old_path, new_path = self.extract_replacement_info(description, item_name)
             if old_path and new_path:
-                # 删除并替换场景
+                # 修改并替换场景
                 result = self.validate_replacement(old_path, new_path, client_new, result)
             else:
-                # 普通删除场景
+                # 普通修改场景
                 file_path = self.extract_file_path(description, item_name)
                 if file_path:
-                    result = self.validate_deletion(file_path, client_old, client_new, result)
+                    result = self.validate_modification(file_path, client_old, client_new, result)
                 else:
-                    # 无法提取路径的删除项，标记为符合预期
-                    result['verified'] = '通过'
-                    result['remark'] = '删除项（无法验证路径，符合预期）'
+                    result['verified'] = '跳过'
+                    result['remark'] = '无法从描述中提取文件路径'
 
         elif change_type == '新增':
             file_path = self.extract_file_path(description, item_name)
@@ -708,7 +735,9 @@ class SSHValidator:
             html_parts.append('</div>')
 
             # 表格
+            html_parts.append('<div class="table-wrapper">')
             html_parts.append('<table class="data-table">')
+            html_parts.append('<colgroup><col style="width:20%"><col style="width:15%"><col style="width:15%"><col style="width:25%"><col style="width:10%"><col style="width:15%"></colgroup>')
             html_parts.append('<thead><tr>')
             html_parts.append('<th>章节</th><th>变更项</th><th>影响说明</th><th>描述</th><th>验证状态</th><th>备注</th>')
             html_parts.append('</tr></thead>')
@@ -728,6 +757,7 @@ class SSHValidator:
 
             html_parts.append('</tbody>')
             html_parts.append('</table>')
+            html_parts.append('</div>')
             html_parts.append('</div>')
 
         html_parts.append('</div>')
@@ -797,6 +827,7 @@ body {
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     overflow: hidden;
+    width: 95%;
 }
 header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -839,17 +870,18 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 }
 .tab-button:hover { background: #e9ecef; color: #667eea; }
 .tab-button.active { color: #667eea; border-bottom-color: #667eea; background: white; }
-.content { padding: 30px; }
+.content { padding: 30px; overflow-x: auto; }
 .tab-content { display: none; }
 .tab-content.active { display: block; animation: fadeIn 0.3s; }
+.table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .summary { margin-bottom: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; }
 .summary h2 { font-size: 20px; margin-bottom: 15px; color: #495057; }
 .summary-stats { display: flex; flex-wrap: wrap; gap: 15px; }
-.data-table { width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.data-table { width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0,0,0,0.1); table-layout: fixed; overflow-wrap: break-word; }
 .data-table thead { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-.data-table th { padding: 15px; text-align: left; font-weight: 600; }
-.data-table td { padding: 12px 15px; border-bottom: 1px solid #e9ecef; word-wrap: break-word; white-space: normal; max-width: 300px; }
+.data-table th { padding: 15px; text-align: left; font-weight: 600; white-space: nowrap; }
+.data-table td { padding: 12px 15px; border-bottom: 1px solid #e9ecef; word-wrap: break-word; white-space: normal; overflow-wrap: break-word; hyphens: auto; }
 .data-table tbody tr:hover { background: #f8f9fa; }
 .status-pass { color: #28a745; font-weight: 600; }
 .status-fail { color: #dc3545; font-weight: 600; }
