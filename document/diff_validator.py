@@ -266,36 +266,41 @@ class SSHValidator:
 
     def extract_file_path(self, description, item_name=''):
         """
-        从描述中提取文件路径
+        从描述中提取文件路径，并处理占位符
 
         Args:
             description: 描述文本
             item_name: 变更项名称
 
         Returns:
-            文件路径字符串
+            文件路径字符串（占位符已替换为1）
         """
+        path = None
+
         # 首先检查item_name
         if item_name:
-            # 检查是否是路径
-            if item_name.startswith('/') or re.match(r'^[\w\-/]+\.[\w]+$', item_name):
-                return item_name
-            # 检查是否是接口名（包含斜杠的路径形式）
-            if '/' in item_name or item_name.startswith('/'):
-                return item_name
+            # 检查是否是路径（以/开头，或包含/的路径形式）
+            if item_name.startswith('/') or '/' in item_name:
+                # 检查是否看起来像路径（包含字母、数字、斜杠、点、下划线、横线、尖括号）
+                if re.match(r'^[a-zA-Z0-9_\-./<>]+$', item_name) or item_name.startswith('/'):
+                    path = item_name
 
-        # 从描述中提取路径
-        # 匹配 / 开头的路径
-        path_match = re.search(r'(/[/\w\-\.\_]+)', description)
-        if path_match:
-            return path_match.group(1)
+        # 如果没有从item_name获取到路径，从描述中提取
+        if not path:
+            # 匹配 / 开头的路径，支持 <pid> 等占位符
+            # 匹配 /proc/<pid>/sp_cgroup 这样的路径
+            path_match = re.search(r'(/[a-zA-Z0-9_\-./<>]+)', description)
+            if path_match:
+                path = path_match.group(1)
 
-        # 检查描述中的接口路径（如 /sys/class/raw）
-        path_match = re.search(r'(/[a-zA-Z0-9_\-/]+)', description)
-        if path_match:
-            return path_match.group(1)
+        # 替换占位符为1用于验证
+        if path:
+            original_path = path
+            path = path.replace('<pid>', '1').replace('<PID>', '1')
+            if original_path != path:
+                self.logger.info(f"  路径占位符替换: {original_path} -> {path}")
 
-        return None
+        return path
 
     def is_valid_path(self, text):
         """
@@ -339,8 +344,8 @@ class SSHValidator:
 
         # 如果没有old_path，尝试从描述开头提取
         if not old_path:
-            # 匹配开头的路径
-            path_match = re.search(r'(/[/\w\.\-]+)', description)
+            # 匹配开头的路径，支持 <pid> 等占位符
+            path_match = re.search(r'(/[a-zA-Z0-9_\-./<>]+)', description)
             if path_match:
                 old_path = path_match.group(1)
 
