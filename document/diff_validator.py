@@ -696,14 +696,7 @@ class SSHValidator:
         html_parts.append(f'<p class="timestamp">生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>')
         html_parts.append('</header>')
 
-        # 导航标签
-        html_parts.append('<nav class="tabs">')
-        for sheet_name in results_by_sheet.keys():
-            sheet_id = sheet_name.replace(' ', '-').lower()
-            html_parts.append(f'<button class="tab-button {"active" if sheet_name == list(results_by_sheet.keys())[0] else ""}" onclick="showTab(\'{sheet_id}\')">{sheet_name}</button>')
-        html_parts.append('</nav>')
-
-        # 总计汇总（放在导航标签下方）
+        # 总计汇总（放在导航标签上方）
         total_summary = self.calculate_total_summary()
         html_parts.append('<div class="total-summary">')
         html_parts.append(f'<span class="stat-item">总计: <strong>{total_summary["total"]}</strong></span>')
@@ -717,6 +710,13 @@ class SSHValidator:
             html_parts.append(f'<span class="stat-item stat-skip">跳过: {total_summary["skipped"]}</span>')
         html_parts.append('</div>')
 
+        # 导航标签
+        html_parts.append('<nav class="tabs">')
+        for sheet_name in results_by_sheet.keys():
+            sheet_id = sheet_name.replace(' ', '-').lower()
+            html_parts.append(f'<button class="tab-button {"active" if sheet_name == list(results_by_sheet.keys())[0] else ""}" onclick="showTab(\'{sheet_id}\')">{sheet_name}</button>')
+        html_parts.append('</nav>')
+
         # 内容区域
         html_parts.append('<div class="content">')
 
@@ -726,10 +726,8 @@ class SSHValidator:
 
             html_parts.append(f'<div id="{sheet_id}" class="tab-content {"active" if is_active else ""}">')
 
-            # Sheet筛选按钮（只保留按钮，移除重复的汇总文字）
+            # Sheet筛选按钮（只保留筛选按钮）
             summary = self.calculate_sheet_summary(results)
-            html_parts.append('<div class="summary">')
-            html_parts.append(f'<h2>{sheet_name}</h2>')
             html_parts.append(f'<div class="sheet-filters" data-sheet="{sheet_id}">')
             html_parts.append(f'<button class="filter-btn active" data-filter="全部" onclick="filterSheet(\'{sheet_id}\', \'全部\')">全部({summary["total"]})</button>')
             html_parts.append(f'<button class="filter-btn" data-filter="通过" onclick="filterSheet(\'{sheet_id}\', \'通过\')">通过({summary["passed"]})</button>')
@@ -737,7 +735,6 @@ class SSHValidator:
             html_parts.append(f'<button class="filter-btn" data-filter="警告" onclick="filterSheet(\'{sheet_id}\', \'警告\')">警告({summary["warned"]})</button>')
             html_parts.append(f'<button class="filter-btn" data-filter="跳过" onclick="filterSheet(\'{sheet_id}\', \'跳过\')">跳过({summary["skipped"]})</button>')
             html_parts.append(f'<button class="filter-btn" data-filter="待验证" onclick="filterSheet(\'{sheet_id}\', \'待验证\')">待验证({summary.get("pending", summary["total"])})</button>')
-            html_parts.append('</div>')
             html_parts.append('</div>')
 
             # 表格
@@ -902,7 +899,8 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
-    margin-top: 15px;
+    padding: 15px 0;
+    justify-content: center;
 }
 .filter-btn.filter-pass:hover { border-color: #28a745; }
 .filter-btn.filter-fail:hover { border-color: #dc3545; }
