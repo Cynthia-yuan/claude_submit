@@ -137,22 +137,27 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <div class="container">
 <header>
 <h1>diff_report</h1>
-<p class="timestamp">生成时间: 2026-04-01 19:26:18</p>
+<p class="timestamp">生成时间: 2026-04-01 19:38:08</p>
 </header>
 <nav class="tabs">
 <button class="tab-button active" onclick="showTab('删除')">删除</button>
 <button class="tab-button " onclick="showTab('新增')">新增</button>
 <button class="tab-button " onclick="showTab('修改')">修改</button>
 </nav>
+<div class="total-summary">
+<span class="stat-item">总计: <strong>70</strong></span>
+</div>
 <div class="content">
 <div id="删除" class="tab-content active">
 <div class="summary">
 <h2>删除</h2>
-<div class="summary-stats">
-<span class="stat-item">总计: <strong>30</strong></span>
-</div>
 <div class="sheet-filters" data-sheet="删除">
-<button class="filter-btn active" onclick="filterSheet('删除', 'all')">全部(30)</button>
+<button class="filter-btn active" data-filter="全部" onclick="filterSheet('删除', '全部')">全部(30)</button>
+<button class="filter-btn" data-filter="通过" onclick="filterSheet('删除', '通过')">通过(0)</button>
+<button class="filter-btn" data-filter="失败" onclick="filterSheet('删除', '失败')">失败(0)</button>
+<button class="filter-btn" data-filter="警告" onclick="filterSheet('删除', '警告')">警告(0)</button>
+<button class="filter-btn" data-filter="跳过" onclick="filterSheet('删除', '跳过')">跳过(0)</button>
+<button class="filter-btn" data-filter="待验证" onclick="filterSheet('删除', '待验证')">待验证(30)</button>
 </div>
 </div>
 <div class="table-wrapper">
@@ -409,11 +414,13 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <div id="新增" class="tab-content ">
 <div class="summary">
 <h2>新增</h2>
-<div class="summary-stats">
-<span class="stat-item">总计: <strong>29</strong></span>
-</div>
 <div class="sheet-filters" data-sheet="新增">
-<button class="filter-btn active" onclick="filterSheet('新增', 'all')">全部(29)</button>
+<button class="filter-btn active" data-filter="全部" onclick="filterSheet('新增', '全部')">全部(29)</button>
+<button class="filter-btn" data-filter="通过" onclick="filterSheet('新增', '通过')">通过(0)</button>
+<button class="filter-btn" data-filter="失败" onclick="filterSheet('新增', '失败')">失败(0)</button>
+<button class="filter-btn" data-filter="警告" onclick="filterSheet('新增', '警告')">警告(0)</button>
+<button class="filter-btn" data-filter="跳过" onclick="filterSheet('新增', '跳过')">跳过(0)</button>
+<button class="filter-btn" data-filter="待验证" onclick="filterSheet('新增', '待验证')">待验证(29)</button>
 </div>
 </div>
 <div class="table-wrapper">
@@ -662,11 +669,13 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <div id="修改" class="tab-content ">
 <div class="summary">
 <h2>修改</h2>
-<div class="summary-stats">
-<span class="stat-item">总计: <strong>11</strong></span>
-</div>
 <div class="sheet-filters" data-sheet="修改">
-<button class="filter-btn active" onclick="filterSheet('修改', 'all')">全部(11)</button>
+<button class="filter-btn active" data-filter="全部" onclick="filterSheet('修改', '全部')">全部(11)</button>
+<button class="filter-btn" data-filter="通过" onclick="filterSheet('修改', '通过')">通过(0)</button>
+<button class="filter-btn" data-filter="失败" onclick="filterSheet('修改', '失败')">失败(0)</button>
+<button class="filter-btn" data-filter="警告" onclick="filterSheet('修改', '警告')">警告(0)</button>
+<button class="filter-btn" data-filter="跳过" onclick="filterSheet('修改', '跳过')">跳过(0)</button>
+<button class="filter-btn" data-filter="待验证" onclick="filterSheet('修改', '待验证')">待验证(11)</button>
 </div>
 </div>
 <div class="table-wrapper">
@@ -783,7 +792,7 @@ function filterSheet(sheetId, status) {
     const container = document.getElementById(sheetId);
     container.querySelectorAll('.filter-btn').forEach(btn => {
         btn.classList.remove('active');
-        if (btn.textContent.includes(status)) {
+        if (btn.dataset.filter === status) {
             btn.classList.add('active');
         }
     });
@@ -792,7 +801,7 @@ function filterSheet(sheetId, status) {
         if (status === '全部') {
             row.style.display = '';
         } else {
-            const rowStatus = row.dataset.status;
+            const rowStatus = row.dataset.status || '待验证';
             if (rowStatus === status) {
                 row.style.display = '';
             } else {

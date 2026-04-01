@@ -698,6 +698,20 @@ class SSHValidator:
             html_parts.append(f'<button class="tab-button {"active" if sheet_name == list(results_by_sheet.keys())[0] else ""}" onclick="showTab(\'{sheet_id}\')">{sheet_name}</button>')
         html_parts.append('</nav>')
 
+        # 总计汇总（放在导航标签下方）
+        total_summary = self.calculate_total_summary()
+        html_parts.append('<div class="total-summary">')
+        html_parts.append(f'<span class="stat-item">总计: <strong>{total_summary["total"]}</strong></span>')
+        if total_summary['passed'] > 0:
+            html_parts.append(f'<span class="stat-item stat-pass">通过: {total_summary["passed"]}</span>')
+        if total_summary['failed'] > 0:
+            html_parts.append(f'<span class="stat-item stat-fail">失败: {total_summary["failed"]}</span>')
+        if total_summary['warned'] > 0:
+            html_parts.append(f'<span class="stat-item stat-warn">警告: {total_summary["warned"]}</span>')
+        if total_summary['skipped'] > 0:
+            html_parts.append(f'<span class="stat-item stat-skip">跳过: {total_summary["skipped"]}</span>')
+        html_parts.append('</div>')
+
         # 内容区域
         html_parts.append('<div class="content">')
 
@@ -707,32 +721,17 @@ class SSHValidator:
 
             html_parts.append(f'<div id="{sheet_id}" class="tab-content {"active" if is_active else ""}">')
 
-            # Sheet摘要和筛选按钮
+            # Sheet筛选按钮（只保留按钮，移除重复的汇总文字）
             summary = self.calculate_sheet_summary(results)
             html_parts.append('<div class="summary">')
             html_parts.append(f'<h2>{sheet_name}</h2>')
-            html_parts.append('<div class="summary-stats">')
-            html_parts.append(f'<span class="stat-item">总计: <strong>{summary["total"]}</strong></span>')
-            if summary['passed'] > 0:
-                html_parts.append(f'<span class="stat-item stat-pass">通过: {summary["passed"]}</span>')
-            if summary['failed'] > 0:
-                html_parts.append(f'<span class="stat-item stat-fail">失败: {summary["failed"]}</span>')
-            if summary['warned'] > 0:
-                html_parts.append(f'<span class="stat-item stat-warn">警告: {summary["warned"]}</span>')
-            if summary['skipped'] > 0:
-                html_parts.append(f'<span class="stat-item stat-skip">跳过: {summary["skipped"]}</span>')
-            html_parts.append('</div>')
-            # Sheet筛选按钮
             html_parts.append(f'<div class="sheet-filters" data-sheet="{sheet_id}">')
-            html_parts.append(f'<button class="filter-btn active" onclick="filterSheet(\'{sheet_id}\', \'all\')">全部({summary["total"]})</button>')
-            if summary['passed'] > 0:
-                html_parts.append(f'<button class="filter-btn filter-pass" onclick="filterSheet(\'{sheet_id}\', \'通过\')">通过({summary["passed"]})</button>')
-            if summary['failed'] > 0:
-                html_parts.append(f'<button class="filter-btn filter-fail" onclick="filterSheet(\'{sheet_id}\', \'失败\')">失败({summary["failed"]})</button>')
-            if summary['warned'] > 0:
-                html_parts.append(f'<button class="filter-btn filter-warn" onclick="filterSheet(\'{sheet_id}\', \'警告\')">警告({summary["warned"]})</button>')
-            if summary['skipped'] > 0:
-                html_parts.append(f'<button class="filter-btn filter-skip" onclick="filterSheet(\'{sheet_id}\', \'跳过\')">跳过({summary["skipped"]})</button>')
+            html_parts.append(f'<button class="filter-btn active" data-filter="全部" onclick="filterSheet(\'{sheet_id}\', \'全部\')">全部({summary["total"]})</button>')
+            html_parts.append(f'<button class="filter-btn" data-filter="通过" onclick="filterSheet(\'{sheet_id}\', \'通过\')">通过({summary["passed"]})</button>')
+            html_parts.append(f'<button class="filter-btn" data-filter="失败" onclick="filterSheet(\'{sheet_id}\', \'失败\')">失败({summary["failed"]})</button>')
+            html_parts.append(f'<button class="filter-btn" data-filter="警告" onclick="filterSheet(\'{sheet_id}\', \'警告\')">警告({summary["warned"]})</button>')
+            html_parts.append(f'<button class="filter-btn" data-filter="跳过" onclick="filterSheet(\'{sheet_id}\', \'跳过\')">跳过({summary["skipped"]})</button>')
+            html_parts.append(f'<button class="filter-btn" data-filter="待验证" onclick="filterSheet(\'{sheet_id}\', \'待验证\')">待验证({summary.get("pending", summary["total"])})</button>')
             html_parts.append('</div>')
             html_parts.append('</div>')
 
@@ -800,7 +799,7 @@ class SSHValidator:
 
     def calculate_sheet_summary(self, results):
         """计算Sheet摘要"""
-        summary = {'total': 0, 'passed': 0, 'failed': 0, 'warned': 0, 'skipped': 0}
+        summary = {'total': 0, 'passed': 0, 'failed': 0, 'warned': 0, 'skipped': 0, 'pending': 0}
         for result in results:
             summary['total'] += 1
             if result['verified'] == '通过':
@@ -811,6 +810,8 @@ class SSHValidator:
                 summary['warned'] += 1
             elif result['verified'] == '跳过':
                 summary['skipped'] += 1
+            elif result['verified'] == '待验证':
+                summary['pending'] += 1
         return summary
 
     def get_html_css(self):
@@ -956,7 +957,7 @@ function filterSheet(sheetId, status) {
     const container = document.getElementById(sheetId);
     container.querySelectorAll('.filter-btn').forEach(btn => {
         btn.classList.remove('active');
-        if (btn.textContent.includes(status)) {
+        if (btn.dataset.filter === status) {
             btn.classList.add('active');
         }
     });
@@ -965,7 +966,7 @@ function filterSheet(sheetId, status) {
         if (status === '全部') {
             row.style.display = '';
         } else {
-            const rowStatus = row.dataset.status;
+            const rowStatus = row.dataset.status || '待验证';
             if (rowStatus === status) {
                 row.style.display = '';
             } else {

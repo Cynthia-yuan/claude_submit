@@ -118,3 +118,13 @@
 2026-04-01 19:26:18,892 - INFO - 正在读取Sheet页: 修改
 2026-04-01 19:26:18,892 - INFO - 从Excel加载了 70 条变更记录
 2026-04-01 19:26:18,892 - INFO - HTML报告已生成: /Users/yuanlulu/claude/document/output/diff_report.html
+2026-04-01 19:35:19,478 - INFO - 正在读取Sheet页: 删除
+2026-04-01 19:35:19,478 - INFO - 正在读取Sheet页: 新增
+2026-04-01 19:35:19,478 - INFO - 正在读取Sheet页: 修改
+2026-04-01 19:35:19,478 - INFO - 从Excel加载了 70 条变更记录
+2026-04-01 19:35:19,478 - INFO - HTML报告已生成: /Users/yuanlulu/claude/document/output/diff_report.html
+2026-04-01 19:38:08,591 - INFO - 正在读取Sheet页: 删除
+2026-04-01 19:38:08,591 - INFO - 正在读取Sheet页: 新增
+2026-04-01 19:38:08,591 - INFO - 正在读取Sheet页: 修改
+2026-04-01 19:38:08,591 - INFO - 从Excel加载了 70 条变更记录
+2026-04-01 19:38:08,591 - INFO - HTML报告已生成: /Users/yuanlulu/claude/document/output/diff_report.html
