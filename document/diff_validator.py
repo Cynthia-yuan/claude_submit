@@ -849,7 +849,7 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 .data-table { width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
 .data-table thead { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
 .data-table th { padding: 15px; text-align: left; font-weight: 600; }
-.data-table td { padding: 12px 15px; border-bottom: 1px solid #e9ecef; }
+.data-table td { padding: 12px 15px; border-bottom: 1px solid #e9ecef; word-wrap: break-word; white-space: normal; max-width: 300px; }
 .data-table tbody tr:hover { background: #f8f9fa; }
 .status-pass { color: #28a745; font-weight: 600; }
 .status-fail { color: #dc3545; font-weight: 600; }
