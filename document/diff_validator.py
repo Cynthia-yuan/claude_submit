@@ -691,16 +691,6 @@ class SSHValidator:
         html_parts.append(f'<p class="timestamp">生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>')
         html_parts.append('</header>')
 
-        # 筛选按钮组
-        total_summary = self.calculate_total_summary()
-        html_parts.append('<div class="filter-bar">')
-        html_parts.append('<button class="filter-btn active" data-filter="all" onclick="filterData(\'all\')">全部 <span class="count">(' + str(total_summary["total"]) + ')</span></button>')
-        html_parts.append('<button class="filter-btn filter-pass" data-filter="通过" onclick="filterData(\'通过\')">通过 <span class="count">(' + str(total_summary["passed"]) + ')</span></button>')
-        html_parts.append('<button class="filter-btn filter-fail" data-filter="失败" onclick="filterData(\'失败\')">失败 <span class="count">(' + str(total_summary["failed"]) + ')</span></button>')
-        html_parts.append('<button class="filter-btn filter-warn" data-filter="警告" onclick="filterData(\'警告\')">警告 <span class="count">(' + str(total_summary["warned"]) + ')</span></button>')
-        html_parts.append('<button class="filter-btn filter-skip" data-filter="跳过" onclick="filterData(\'跳过\')">跳过 <span class="count">(' + str(total_summary["skipped"]) + ')</span></button>')
-        html_parts.append('</div>')
-
         # 导航标签
         html_parts.append('<nav class="tabs">')
         for sheet_name in results_by_sheet.keys():
@@ -717,7 +707,7 @@ class SSHValidator:
 
             html_parts.append(f'<div id="{sheet_id}" class="tab-content {"active" if is_active else ""}">')
 
-            # Sheet摘要
+            # Sheet摘要和筛选按钮
             summary = self.calculate_sheet_summary(results)
             html_parts.append('<div class="summary">')
             html_parts.append(f'<h2>{sheet_name}</h2>')
@@ -731,6 +721,18 @@ class SSHValidator:
                 html_parts.append(f'<span class="stat-item stat-warn">警告: {summary["warned"]}</span>')
             if summary['skipped'] > 0:
                 html_parts.append(f'<span class="stat-item stat-skip">跳过: {summary["skipped"]}</span>')
+            html_parts.append('</div>')
+            # Sheet筛选按钮
+            html_parts.append(f'<div class="sheet-filters" data-sheet="{sheet_id}">')
+            html_parts.append(f'<button class="filter-btn active" onclick="filterSheet(\'{sheet_id}\', \'all\')">全部({summary["total"]})</button>')
+            if summary['passed'] > 0:
+                html_parts.append(f'<button class="filter-btn filter-pass" onclick="filterSheet(\'{sheet_id}\', \'通过\')">通过({summary["passed"]})</button>')
+            if summary['failed'] > 0:
+                html_parts.append(f'<button class="filter-btn filter-fail" onclick="filterSheet(\'{sheet_id}\', \'失败\')">失败({summary["failed"]})</button>')
+            if summary['warned'] > 0:
+                html_parts.append(f'<button class="filter-btn filter-warn" onclick="filterSheet(\'{sheet_id}\', \'警告\')">警告({summary["warned"]})</button>')
+            if summary['skipped'] > 0:
+                html_parts.append(f'<button class="filter-btn filter-skip" onclick="filterSheet(\'{sheet_id}\', \'跳过\')">跳过({summary["skipped"]})</button>')
             html_parts.append('</div>')
             html_parts.append('</div>')
 
@@ -847,24 +849,31 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
     flex-wrap: wrap;
 }
 .filter-btn {
-    padding: 10px 20px;
+    padding: 8px 16px;
     border: 2px solid transparent;
     background: white;
-    border-radius: 25px;
-    font-size: 14px;
+    border-radius: 20px;
+    font-size: 13px;
     cursor: pointer;
     transition: all 0.3s;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     font-weight: 500;
 }
 .filter-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+    border-color: #667eea;
 }
 .filter-btn.active {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border-color: #667eea;
+}
+.sheet-filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 15px;
 }
 .filter-btn.filter-pass:hover { border-color: #28a745; }
 .filter-btn.filter-fail:hover { border-color: #dc3545; }
@@ -941,20 +950,19 @@ function showTab(tabId) {
     document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
     document.getElementById(tabId).classList.add('active');
     event.target.classList.add('active');
-    // 重置筛选为全部
-    filterData('all');
 }
-function filterData(status) {
-    // 更新按钮状态
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+function filterSheet(sheetId, status) {
+    // 更新当前Sheet的按钮状态
+    const container = document.getElementById(sheetId);
+    container.querySelectorAll('.filter-btn').forEach(btn => {
         btn.classList.remove('active');
-        if (btn.dataset.filter === status) {
+        if (btn.textContent.includes(status)) {
             btn.classList.add('active');
         }
     });
-    // 筛选数据行
-    document.querySelectorAll('.data-table tbody tr').forEach(row => {
-        if (status === 'all') {
+    // 筛选当前Sheet的数据行
+    container.querySelectorAll('.data-table tbody tr').forEach(row => {
+        if (status === '全部') {
             row.style.display = '';
         } else {
             const rowStatus = row.dataset.status;

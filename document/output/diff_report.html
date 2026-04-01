@@ -39,24 +39,31 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
     flex-wrap: wrap;
 }
 .filter-btn {
-    padding: 10px 20px;
+    padding: 8px 16px;
     border: 2px solid transparent;
     background: white;
-    border-radius: 25px;
-    font-size: 14px;
+    border-radius: 20px;
+    font-size: 13px;
     cursor: pointer;
     transition: all 0.3s;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     font-weight: 500;
 }
 .filter-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+    border-color: #667eea;
 }
 .filter-btn.active {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border-color: #667eea;
+}
+.sheet-filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 15px;
 }
 .filter-btn.filter-pass:hover { border-color: #28a745; }
 .filter-btn.filter-fail:hover { border-color: #dc3545; }
@@ -130,15 +137,8 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <div class="container">
 <header>
 <h1>diff_report</h1>
-<p class="timestamp">生成时间: 2026-04-01 19:19:02</p>
+<p class="timestamp">生成时间: 2026-04-01 19:26:18</p>
 </header>
-<div class="filter-bar">
-<button class="filter-btn active" data-filter="all" onclick="filterData('all')">全部 <span class="count">(70)</span></button>
-<button class="filter-btn filter-pass" data-filter="通过" onclick="filterData('通过')">通过 <span class="count">(0)</span></button>
-<button class="filter-btn filter-fail" data-filter="失败" onclick="filterData('失败')">失败 <span class="count">(0)</span></button>
-<button class="filter-btn filter-warn" data-filter="警告" onclick="filterData('警告')">警告 <span class="count">(0)</span></button>
-<button class="filter-btn filter-skip" data-filter="跳过" onclick="filterData('跳过')">跳过 <span class="count">(0)</span></button>
-</div>
 <nav class="tabs">
 <button class="tab-button active" onclick="showTab('删除')">删除</button>
 <button class="tab-button " onclick="showTab('新增')">新增</button>
@@ -150,6 +150,9 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <h2>删除</h2>
 <div class="summary-stats">
 <span class="stat-item">总计: <strong>30</strong></span>
+</div>
+<div class="sheet-filters" data-sheet="删除">
+<button class="filter-btn active" onclick="filterSheet('删除', 'all')">全部(30)</button>
 </div>
 </div>
 <div class="table-wrapper">
@@ -409,6 +412,9 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <div class="summary-stats">
 <span class="stat-item">总计: <strong>29</strong></span>
 </div>
+<div class="sheet-filters" data-sheet="新增">
+<button class="filter-btn active" onclick="filterSheet('新增', 'all')">全部(29)</button>
+</div>
 </div>
 <div class="table-wrapper">
 <table class="data-table">
@@ -659,6 +665,9 @@ header h1 { font-size: 28px; margin-bottom: 10px; }
 <div class="summary-stats">
 <span class="stat-item">总计: <strong>11</strong></span>
 </div>
+<div class="sheet-filters" data-sheet="修改">
+<button class="filter-btn active" onclick="filterSheet('修改', 'all')">全部(11)</button>
+</div>
 </div>
 <div class="table-wrapper">
 <table class="data-table">
@@ -768,20 +777,19 @@ function showTab(tabId) {
     document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
     document.getElementById(tabId).classList.add('active');
     event.target.classList.add('active');
-    // 重置筛选为全部
-    filterData('all');
 }
-function filterData(status) {
-    // 更新按钮状态
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+function filterSheet(sheetId, status) {
+    // 更新当前Sheet的按钮状态
+    const container = document.getElementById(sheetId);
+    container.querySelectorAll('.filter-btn').forEach(btn => {
         btn.classList.remove('active');
-        if (btn.dataset.filter === status) {
+        if (btn.textContent.includes(status)) {
             btn.classList.add('active');
         }
     });
-    // 筛选数据行
-    document.querySelectorAll('.data-table tbody tr').forEach(row => {
-        if (status === 'all') {
+    // 筛选当前Sheet的数据行
+    container.querySelectorAll('.data-table tbody tr').forEach(row => {
+        if (status === '全部') {
             row.style.display = '';
         } else {
             const rowStatus = row.dataset.status;
