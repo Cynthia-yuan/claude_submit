@@ -691,14 +691,14 @@ class SSHValidator:
         html_parts.append(f'<p class="timestamp">生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>')
         html_parts.append('</header>')
 
-        # 总计摘要
+        # 筛选按钮组
         total_summary = self.calculate_total_summary()
-        html_parts.append('<div class="total-summary">')
-        html_parts.append(f'<span class="stat-item">总计: <strong>{total_summary["total"]}</strong></span>')
-        html_parts.append(f'<span class="stat-item stat-pass">通过: {total_summary["passed"]}</span>')
-        html_parts.append(f'<span class="stat-item stat-fail">失败: {total_summary["failed"]}</span>')
-        html_parts.append(f'<span class="stat-item stat-warn">警告: {total_summary["warned"]}</span>')
-        html_parts.append(f'<span class="stat-item stat-skip">跳过: {total_summary["skipped"]}</span>')
+        html_parts.append('<div class="filter-bar">')
+        html_parts.append('<button class="filter-btn active" data-filter="all" onclick="filterData(\'all\')">全部 <span class="count">(' + str(total_summary["total"]) + ')</span></button>')
+        html_parts.append('<button class="filter-btn filter-pass" data-filter="通过" onclick="filterData(\'通过\')">通过 <span class="count">(' + str(total_summary["passed"]) + ')</span></button>')
+        html_parts.append('<button class="filter-btn filter-fail" data-filter="失败" onclick="filterData(\'失败\')">失败 <span class="count">(' + str(total_summary["failed"]) + ')</span></button>')
+        html_parts.append('<button class="filter-btn filter-warn" data-filter="警告" onclick="filterData(\'警告\')">警告 <span class="count">(' + str(total_summary["warned"]) + ')</span></button>')
+        html_parts.append('<button class="filter-btn filter-skip" data-filter="跳过" onclick="filterData(\'跳过\')">跳过 <span class="count">(' + str(total_summary["skipped"]) + ')</span></button>')
         html_parts.append('</div>')
 
         # 导航标签
@@ -746,7 +746,8 @@ class SSHValidator:
             for result in results:
                 status_class = f' status-{result["verified"].lower()}' if result['verified'] in ['通过', '失败', '警告', '跳过'] else ''
                 impact = result.get('impact', '')
-                html_parts.append(f'<tr>')
+                verified_status = result['verified']
+                html_parts.append(f'<tr data-status="{verified_status}">')
                 html_parts.append(f'<td>{result["chapter"]}</td>')
                 html_parts.append(f'<td>{result["item_name"]}</td>')
                 html_parts.append(f'<td>{impact}</td>')
@@ -837,6 +838,42 @@ header {
 }
 header h1 { font-size: 28px; margin-bottom: 10px; }
 .timestamp { opacity: 0.9; font-size: 14px; }
+.filter-bar {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    padding: 20px;
+    background: #f8f9fa;
+    flex-wrap: wrap;
+}
+.filter-btn {
+    padding: 10px 20px;
+    border: 2px solid transparent;
+    background: white;
+    border-radius: 25px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.3s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    font-weight: 500;
+}
+.filter-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+.filter-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-color: #667eea;
+}
+.filter-btn.filter-pass:hover { border-color: #28a745; }
+.filter-btn.filter-fail:hover { border-color: #dc3545; }
+.filter-btn.filter-warn:hover { border-color: #ffc107; }
+.filter-btn.filter-skip:hover { border-color: #6c757d; }
+.filter-btn .count {
+    opacity: 0.8;
+    font-size: 12px;
+}
 .total-summary {
     display: flex;
     justify-content: center;
@@ -904,6 +941,30 @@ function showTab(tabId) {
     document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
     document.getElementById(tabId).classList.add('active');
     event.target.classList.add('active');
+    // 重置筛选为全部
+    filterData('all');
+}
+function filterData(status) {
+    // 更新按钮状态
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.filter === status) {
+            btn.classList.add('active');
+        }
+    });
+    // 筛选数据行
+    document.querySelectorAll('.data-table tbody tr').forEach(row => {
+        if (status === 'all') {
+            row.style.display = '';
+        } else {
+            const rowStatus = row.dataset.status;
+            if (rowStatus === status) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        }
+    });
 }
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('.tab-button')?.click();
