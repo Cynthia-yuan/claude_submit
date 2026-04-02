@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>命令对比测试文档 - 包含选项验证</title>
+</head>
+<body>
+<h1>命令对比验证示例 - 选项验证</h1>
+
+<h2>5.1 命令选项新增验证</h2>
+<table>
+  <tr>
+    <th>功能描述</th>
+    <th>命令</th>
+    <th>*(相比于)*</th>
+    <th>影响说明</th>
+  </tr>
+  <tr>
+    <td>检查timedatectl命令</td>
+    <td>timedatectl</td>
+    <td>新增revert选项</td>
+    <td>支持恢复时区设置</td>
+  </tr>
+  <tr>
+    <td>检查systemctl命令</td>
+    <td>systemctl</td>
+    <td>新增edit选项</td>
+    <td>支持编辑unit文件</td>
+  </tr>
+  <tr>
+    <td>检查journalctl命令</td>
+    <td>journalctl</td>
+    <td>无变化</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>检查firewall-cmd命令</td>
+    <td>firewall-cmd</td>
+    <td>增加info选项</td>
+    <td>查看防火墙信息</td>
+  </tr>
+</table>
+
+<h2>5.2 其他命令变更</h2>
+<table>
+  <tr>
+    <th>功能描述</th>
+    <th>命令</th>
+    <th>*(相比于)*</th>
+    <th>影响说明</th>
+  </tr>
+  <tr>
+    <td>检查内核版本</td>
+    <td>uname -r</td>
+    <td>版本升级到5.10</td>
+    <td>影响驱动兼容性</td>
+  </tr>
+  <tr>
+    <td>检查系统时区</td>
+    <td>date +%Z</td>
+    <td>无变化</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>检查Java版本</td>
+    <td>java -version 2>&1 | head -1</td>
+    <td>从JDK 8升级到JDK 11</td>
+    <td>影响应用兼容性</td>
+  </tr>
+</table>
+
+</body>
+</html>

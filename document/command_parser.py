@@ -227,8 +227,12 @@ class CommandParser:
         processed_count = 0
 
         for table in tables:
-            # 检查表头
-            headers = [th.get_text(strip=True) for th in table.find_all(['th', 'td'])]
+            # 只读取第一行作为表头
+            first_row = table.find('tr')
+            if not first_row:
+                continue
+
+            headers = [th.get_text(strip=True) for th in first_row.find_all(['th', 'td'])]
 
             # 检测是否是命令对比格式
             has_function_desc = any('功能描述' in h for h in headers)
