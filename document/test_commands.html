@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>命令对比测试文档</title>
+</head>
+<body>
+<h1>命令对比验证示例</h1>
+
+<h2>5.1 进程相关命令对比</h2>
+<table>
+  <tr>
+    <th>功能描述</th>
+    <th>命令</th>
+    <th>*(相比于)*</th>
+    <th>影响说明</th>
+  </tr>
+  <tr>
+    <td>检查内核版本</td>
+    <td>uname -r</td>
+    <td>版本升级到5.10</td>
+    <td>影响驱动兼容性</td>
+  </tr>
+  <tr>
+    <td>检查系统时区</td>
+    <td>date +%Z</td>
+    <td>无变化</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>检查Java版本</td>
+    <td>java -version 2>&1 | head -1</td>
+    <td>从JDK 8升级到JDK 11</td>
+    <td>影响应用兼容性</td>
+  </tr>
+  <tr>
+    <td>检查系统启动时间</td>
+    <td>uptime -s</td>
+    <td>无变化</td>
+    <td></td>
+  </tr>
+</table>
+
+<h2>5.2 配置文件检查</h2>
+<table>
+  <tr>
+    <th>功能描述</th>
+    <th>命令</th>
+    <th>*(相比于)*</th>
+    <th>影响说明</th>
+  </tr>
+  <tr>
+    <td>检查SSH配置</td>
+    <td>grep "^Port" /etc/ssh/sshd_config</td>
+    <td>端口从22改为2222</td>
+    <td>影响远程连接</td>
+  </tr>
+  <tr>
+    <td>检查防火墙状态</td>
+    <td>systemctl is-active firewalld</td>
+    <td>无变化</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>检查数据库版本</td>
+    <td>mysql --version</td>
+    <td>从5.7升级到8.0</td>
+    <td>影响SQL语法</td>
+  </tr>
+</table>
+
+</body>
+</html>
