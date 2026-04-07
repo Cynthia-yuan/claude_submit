@@ -120,8 +120,8 @@ class DiffParser:
         """
         if not text:
             return text
-        # 替换 <pid> 为 <1>
-        return text.replace('<pid>', '<1>').replace('<PID>', '<1>')
+        # 直接替换 <pid> 为 1（不带尖括号）
+        return text.replace('<pid>', '1').replace('<PID>', '1')
 
     def _parse_chapters(self, chapters_str):
         """

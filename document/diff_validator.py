@@ -490,12 +490,12 @@ class SSHValidator:
                 self.logger.info(f"  正则通配符转换: {original_path} -> {path}")
                 original_path = path
 
-        # 优先替换 <1> 为 1（diff_parser.py 已经将 <pid> 替换为 <1>）
-        path = path.replace('<1>', '1')
-        # 兼容旧数据：如果还有 <pid>，也替换为 1
-        path = path.replace('<pid>', '1').replace('<PID>', '1')
-        if original_path != path:
-            self.logger.info(f"  路径占位符替换: {original_path} -> {path}")
+        # 兼容旧数据：如果还有 <pid>、<PID> 或 <1>，替换为 1
+        # 注意：diff_parser.py 现在已经将 <pid> 替换为 1，所以通常不需要再处理
+        if '<pid>' in path or '<PID>' in path or '<1>' in path:
+            path = path.replace('<pid>', '1').replace('<PID>', '1').replace('<1>', '1')
+            if original_path != path:
+                self.logger.info(f"  路径占位符替换: {original_path} -> {path}")
 
         return path
 
@@ -1046,9 +1046,9 @@ class SSHValidator:
         """
         if not text:
             return text
-        # 保持 <1> 不变（diff_parser.py 已替换）
-        # 兼容旧数据：如果还有 <pid> 或 <PID>，替换为 <1>
-        return text.replace('<pid>', '<1>').replace('<PID>', '<1>')
+        # diff_parser.py 已经将 <pid> 替换为 1，所以通常不需要处理
+        # 兼容旧数据：如果还有 <pid>、<PID> 或 <1>，都替换为 1
+        return text.replace('<pid>', '1').replace('<PID>', '1').replace('<1>', '1')
 
     def get_html_css(self):
         """获取HTML CSS样式"""
