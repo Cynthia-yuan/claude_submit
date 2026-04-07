@@ -261,8 +261,77 @@ class SSHValidator:
         """
         if not client:
             return False
+
+        # 检查是否包含通配符
+        if '*' in file_path:
+            return self.check_wildcard_path_exists(client, file_path)
+
         exit_code, stdout, _ = self.execute_command(client, f"test -e '{file_path}' && echo 'exists'")
         return exit_code == 0 and 'exists' in stdout
+
+    def check_wildcard_path_exists(self, client, file_path):
+        """
+        检查包含通配符的路径是否有匹配的文件存在
+
+        Args:
+            client: SSHClient对象
+            file_path: 包含通配符的文件路径
+
+        Returns:
+            bool: 是否有至少一个匹配的文件存在
+        """
+        if not client:
+            return False
+
+        self.logger.info(f"    检查通配符路径: {file_path}")
+
+        # 方法1: 直接使用 shell 通配符展开（最简单高效）
+        # 例如: ls -1 /proc/sys/net/ipv6/conf/*/accept_untracked_na 2>/dev/null
+        exit_code, stdout, stderr = self.execute_command(
+            client,
+            f"ls -1 {file_path} 2>/dev/null | head -5"
+        )
+
+        # 如果有输出，说明至少有一个匹配项
+        if exit_code == 0 and stdout.strip():
+            match_count = len([line for line in stdout.strip().split('\n') if line])
+            self.logger.info(f"    找到 {match_count} 个匹配文件")
+            return True
+
+        # 方法2: 对于通配符在中间的情况（如 /proc/*/status），使用 find 命令
+        # 例如: find /proc -maxdepth 1 -type d -name '*' -exec test -f {}/status \; -print
+        path_parts = file_path.split('/')
+
+        # 找到通配符的位置
+        wildcard_index = -1
+        for i, part in enumerate(path_parts):
+            if '*' in part:
+                wildcard_index = i
+                break
+
+        if wildcard_index >= 0 and wildcard_index < len(path_parts) - 1:
+            # 通配符在中间部分
+            # 例如: /proc/sys/net/ipv6/conf/*/accept_untracked_na
+            # 目标文件名: accept_untracked_na
+            # 搜索基础: /proc/sys/net/ipv6/conf/
+
+            base_search_path = '/'.join(path_parts[:wildcard_index + 1])
+            target_filename = path_parts[-1]
+
+            # 使用 find 查找所有匹配的文件
+            # 注意：shell 的 * 可以在 find 命令中直接使用
+            find_cmd = f"find {base_search_path} -name '{target_filename}' 2>/dev/null | head -1"
+
+            self.logger.info(f"    尝试 find 命令: {find_cmd}")
+
+            exit_code, stdout, stderr = self.execute_command(client, find_cmd)
+
+            if exit_code == 0 and stdout.strip():
+                self.logger.info(f"    通过 find 找到匹配文件")
+                return True
+
+        self.logger.info(f"    未找到匹配文件")
+        return False
 
     def extract_file_path(self, description, item_name=''):
         """
@@ -513,15 +582,27 @@ class SSHValidator:
         # 检查新环境是否存在
         new_exists = client_new and self.check_file_exists(client_new, file_path)
 
+        # 如果路径包含通配符，提供更详细的说明
+        has_wildcard = '*' in file_path
+
         if not old_exists and new_exists:
             result['verified'] = '通过'
-            result['remark'] = f'新环境存在 ✓'
+            if has_wildcard:
+                result['remark'] = f'新环境存在匹配文件 ✓（通配符路径）'
+            else:
+                result['remark'] = f'新环境存在 ✓'
         elif old_exists and new_exists:
             result['verified'] = '警告'
-            result['remark'] = f'两个环境都存在该文件'
+            if has_wildcard:
+                result['remark'] = f'两个环境都存在匹配文件（通配符路径）'
+            else:
+                result['remark'] = f'两个环境都存在该文件'
         elif not new_exists:
             result['verified'] = '失败'
-            result['remark'] = f'新环境不存在该文件，应新增'
+            if has_wildcard:
+                result['remark'] = f'新环境不存在匹配文件，应新增（通配符路径）'
+            else:
+                result['remark'] = f'新环境不存在该文件，应新增'
         else:
             result['verified'] = '未知'
             result['remark'] = f'无法验证'
