@@ -262,12 +262,40 @@ class SSHValidator:
         if not client:
             return False
 
+        # 处理正则表达式通配符 .*
+        if '.*' in file_path:
+            file_path = self._convert_regex_wildcard(file_path)
+
         # 检查是否包含通配符
         if '*' in file_path:
             return self.check_wildcard_path_exists(client, file_path)
 
         exit_code, stdout, _ = self.execute_command(client, f"test -e '{file_path}' && echo 'exists'")
         return exit_code == 0 and 'exists' in stdout
+
+    def _convert_regex_wildcard(self, file_path):
+        """
+        将正则表达式通配符 .* 转换为 shell 通配符 *
+
+        Args:
+            file_path: 包含 .* 的路径
+
+        Returns:
+            转换后的路径
+        """
+        original_path = file_path
+
+        # 将 .* 替换为 *（shell通配符）
+        # 注意：不要替换 .*. 或 .*等特殊情况
+        # 只替换独立的 .* 模式
+        import re
+        # 使用正则替换，匹配 .* 但不匹配其他 . 的情况
+        file_path = re.sub(r'\.\*', '*', file_path)
+
+        if original_path != file_path:
+            self.logger.info(f"  正则通配符转换: {original_path} -> {file_path}")
+
+        return file_path
 
     def check_wildcard_path_exists(self, client, file_path):
         """
@@ -365,6 +393,17 @@ class SSHValidator:
         # 替换占位符为1用于验证
         if path:
             original_path = path
+
+            # 转换正则表达式通配符 .* 为 shell 通配符 *
+            if '.*' in path:
+                path = re.sub(r'\.\*', '*', path)
+                if path != original_path:
+                    self.logger.info(f"  正则通配符转换: {original_path} -> {path}")
+                    original_path = path
+
+            # 优先替换 <1> 为 1（diff_parser.py 已经将 <pid> 替换为 <1>）
+            path = path.replace('<1>', '1')
+            # 兼容旧数据：如果还有 <pid>，也替换为 1
             path = path.replace('<pid>', '1').replace('<PID>', '1')
             if original_path != path:
                 self.logger.info(f"  路径占位符替换: {original_path} -> {path}")
@@ -907,7 +946,7 @@ class SSHValidator:
 
     def _replace_placeholder(self, text):
         """
-        替换文本中的占位符
+        替换文本中的占位符（用于HTML显示）
 
         Args:
             text: 原始文本
@@ -917,8 +956,9 @@ class SSHValidator:
         """
         if not text:
             return text
-        # 替换 <pid> 为 1
-        return text.replace('<pid>', '1').replace('<PID>', '1')
+        # 保持 <1> 不变（diff_parser.py 已替换）
+        # 兼容旧数据：如果还有 <pid> 或 <PID>，替换为 <1>
+        return text.replace('<pid>', '<1>').replace('<PID>', '<1>')
 
     def get_html_css(self):
         """获取HTML CSS样式"""

@@ -108,6 +108,21 @@ class DiffParser:
         if self.skip_chapters:
             print(f"跳过章节: {self.skip_chapters}")
 
+    def _replace_placeholder(self, text):
+        """
+        替换文本中的占位符
+
+        Args:
+            text: 原始文本
+
+        Returns:
+            替换后的文本
+        """
+        if not text:
+            return text
+        # 替换 <pid> 为 <1>
+        return text.replace('<pid>', '<1>').replace('<PID>', '<1>')
+
     def _parse_chapters(self, chapters_str):
         """
         解析章节字符串
@@ -410,6 +425,11 @@ class DiffParser:
             if col_indices.get('影响说明') is not None and col_indices['影响说明'] < len(values):
                 impact = values[col_indices['影响说明']]
 
+            # 替换占位符（<pid> -> <1>）
+            item_name = self._replace_placeholder(item_name)
+            description = self._replace_placeholder(description)
+            impact = self._replace_placeholder(impact)
+
             self.changes.append({
                 'chapter': table_chapter,
                 'change_type': change_type,
@@ -455,6 +475,9 @@ class DiffParser:
             }
             change_type_cn = change_type_map.get(change_type, change_type)
 
+            # 替换占位符（<pid> -> <1>）
+            text = self._replace_placeholder(text)
+
             self.changes.append({
                 'chapter': chapter_path,
                 'change_type': change_type_cn,
@@ -483,6 +506,10 @@ class DiffParser:
                         text = cells[0].get_text(strip=True)
                         description = cells[3].get_text(strip=True) if len(cells) > 3 else ''
                         chapter_path = self.find_chapter_for_element(row, soup)
+
+                        # 替换占位符（<pid> -> <1>）
+                        text = self._replace_placeholder(text)
+                        description = self._replace_placeholder(description)
 
                         self.changes.append({
                             'chapter': chapter_path,
