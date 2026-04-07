@@ -852,17 +852,18 @@ class SSHValidator:
             for result in results:
                 # 找到对应的行并更新
                 for row in ws.iter_rows(min_row=row_num, values_only=False):
-                    if row[0].value == result['chapter'] and row[2].value == result['description']:
-                        row[3].value = result['verified']
-                        row[4].value = result['remark']
+                    # Excel列结构：章节[0], 变更项[1], 影响说明[2], 描述[3], 验证状态[4], 备注[5]
+                    if row[0].value == result['chapter'] and row[3].value == result['description']:
+                        row[4].value = result['verified']  # 更新验证状态
+                        row[5].value = result['remark']     # 更新备注
 
                         # 根据验证结果设置样式
                         if result['verified'] == '通过':
-                            row[3].fill = fill_pass
+                            row[4].fill = fill_pass
                         elif result['verified'] == '失败':
-                            row[3].fill = fill_fail
+                            row[4].fill = fill_fail
                         elif result['verified'] == '警告':
-                            row[3].fill = fill_warn
+                            row[4].fill = fill_warn
                         break
                 row_num += 1
 
