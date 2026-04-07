@@ -361,6 +361,84 @@ class SSHValidator:
         self.logger.info(f"    未找到匹配文件")
         return False
 
+    def _extract_multiple_paths(self, text):
+        """
+        从文本中提取多个路径
+
+        Args:
+            text: 可能包含多个路径的文本
+
+        Returns:
+            路径列表
+        """
+        if not text:
+            return []
+
+        paths = []
+
+        # 方法1: 使用正则表达式提取所有路径
+        # 匹配 / 开头的路径，包含常见字符和通配符
+        path_pattern = r'(/[a-zA-Z0-9_\-./<>.*]+)'
+        matches = re.findall(path_pattern, text)
+        if matches:
+            paths.extend(matches)
+
+        # 方法2: 如果正则没找到，尝试按分隔符分割
+        if not paths:
+            separators = [',', ';', '\t', '，', '；']
+            for sep in separators:
+                if sep in text:
+                    parts = text.split(sep)
+                    for part in parts:
+                        part = part.strip()
+                        if part.startswith('/'):
+                            paths.append(part)
+                    if paths:
+                        break
+
+        # 如果还是没有，检查整个文本是否是路径
+        if not paths and text.startswith('/'):
+            paths = [text]
+
+        return paths
+
+    def _select_best_path(self, paths):
+        """
+        从路径列表中选择最佳路径用于验证
+
+        优先级：具体路径 > 通配符路径
+
+        Args:
+            paths: 路径列表
+
+        Returns:
+            最佳路径
+        """
+        if not paths:
+            return None
+
+        # 分类路径
+        concrete_paths = []  # 不含通配符的路径
+        wildcard_paths = []  # 含通配符的路径
+
+        for path in paths:
+            if '*' in path:
+                wildcard_paths.append(path)
+            else:
+                concrete_paths.append(path)
+
+        # 优先返回具体路径
+        if concrete_paths:
+            self.logger.info(f"  从 {len(paths)} 个路径中选择具体路径: {concrete_paths[0]}")
+            return concrete_paths[0]
+
+        # 如果没有具体路径，返回通配符路径
+        if wildcard_paths:
+            self.logger.info(f"  从 {len(paths)} 个路径中选择通配符路径: {wildcard_paths[0]}")
+            return wildcard_paths[0]
+
+        return paths[0]
+
     def extract_file_path(self, description, item_name=''):
         """
         从描述中提取文件路径，并处理占位符
@@ -374,39 +452,50 @@ class SSHValidator:
         """
         path = None
 
-        # 首先检查item_name
+        # 首先检查item_name（可能包含多个路径）
         if item_name:
-            # 检查是否是路径（以/开头，或包含/的路径形式）
-            if item_name.startswith('/') or '/' in item_name:
-                # 检查是否看起来像路径（包含字母、数字、斜杠、点、下划线、横线、尖括号）
-                if re.match(r'^[a-zA-Z0-9_\-./<>]+$', item_name) or item_name.startswith('/'):
-                    path = item_name
+            # 检查是否包含多个路径
+            paths = self._extract_multiple_paths(item_name)
+            if paths:
+                # 选择最佳路径
+                path = self._select_best_path(paths)
+            else:
+                # 单个路径的情况
+                if item_name.startswith('/') or '/' in item_name:
+                    if re.match(r'^[a-zA-Z0-9_\-./<>]+$', item_name) or item_name.startswith('/'):
+                        path = item_name
 
         # 如果没有从item_name获取到路径，从描述中提取
         if not path:
-            # 匹配 / 开头的路径，支持 <pid> 等占位符
-            # 匹配 /proc/<pid>/sp_cgroup 这样的路径
-            path_match = re.search(r'(/[a-zA-Z0-9_\-./<>]+)', description)
-            if path_match:
-                path = path_match.group(1)
+            # 尝试从描述中提取多个路径
+            paths = self._extract_multiple_paths(description)
+            if paths:
+                path = self._select_best_path(paths)
+            else:
+                # 单个路径匹配
+                path_match = re.search(r'(/[a-zA-Z0-9_\-./<>]+)', description)
+                if path_match:
+                    path = path_match.group(1)
+
+        if not path:
+            return None
 
         # 替换占位符为1用于验证
-        if path:
-            original_path = path
+        original_path = path
 
-            # 转换正则表达式通配符 .* 为 shell 通配符 *
-            if '.*' in path:
-                path = re.sub(r'\.\*', '*', path)
-                if path != original_path:
-                    self.logger.info(f"  正则通配符转换: {original_path} -> {path}")
-                    original_path = path
+        # 转换正则表达式通配符 .* 为 shell 通配符 *
+        if '.*' in path:
+            path = re.sub(r'\.\*', '*', path)
+            if path != original_path:
+                self.logger.info(f"  正则通配符转换: {original_path} -> {path}")
+                original_path = path
 
-            # 优先替换 <1> 为 1（diff_parser.py 已经将 <pid> 替换为 <1>）
-            path = path.replace('<1>', '1')
-            # 兼容旧数据：如果还有 <pid>，也替换为 1
-            path = path.replace('<pid>', '1').replace('<PID>', '1')
-            if original_path != path:
-                self.logger.info(f"  路径占位符替换: {original_path} -> {path}")
+        # 优先替换 <1> 为 1（diff_parser.py 已经将 <pid> 替换为 <1>）
+        path = path.replace('<1>', '1')
+        # 兼容旧数据：如果还有 <pid>，也替换为 1
+        path = path.replace('<pid>', '1').replace('<PID>', '1')
+        if original_path != path:
+            self.logger.info(f"  路径占位符替换: {original_path} -> {path}")
 
         return path
 
