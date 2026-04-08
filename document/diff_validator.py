@@ -738,6 +738,96 @@ class SSHValidator:
         self.logger.info(f"[新增] {file_path} - {result['verified']}")
         return result
 
+    def _is_help_verification_needed(self, comparison):
+        """
+        判断是否需要使用 --help 验证
+
+        Args:
+            comparison: 对比描述
+
+        Returns:
+            (是否需要help验证, 提取的选项名)
+        """
+        if not comparison:
+            return False, None
+
+        # 匹配模式：新增选项、增加参数、新增参数等
+        patterns = [
+            r'新增\s*([\w-]+)\s*选项',
+            r'增加\s*([\w-]+)\s*选项',
+            r'新增\s*([\w-]+)\s*参数',
+            r'增加\s*([\w-]+)\s*参数',
+            r'添加\s*([\w-]+)\s*选项',
+            r'revert\s*选项',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, comparison)
+            if match:
+                option_name = match.group(1) if len(match.groups()) > 0 else 'revert'
+                return True, option_name
+
+        # 特殊处理：直接提到"revert"的情况
+        if 'revert' in comparison.lower() and '选项' in comparison:
+            return True, 'revert'
+
+        return False, None
+
+    def _extract_base_command(self, command):
+        """
+        从命令中提取基础命令（用于添加 --help）
+
+        Args:
+            command: 原始命令
+
+        Returns:
+            基础命令
+        """
+        # 简单提取：取第一个空格前的部分
+        parts = command.split()
+        if parts:
+            base_cmd = parts[0]
+            # 处理带路径的命令，如 /usr/bin/command
+            if '/' in base_cmd:
+                base_cmd = base_cmd.split('/')[-1]
+            return base_cmd
+        return command
+
+    def validate_command_with_help(self, command, option_name, client_new):
+        """
+        使用 --help 验证选项是否存在
+
+        Args:
+            command: 原始命令
+            option_name: 要验证的选项名
+            client_new: 新环境SSH客户端
+
+        Returns:
+            (验证状态, 备注)
+        """
+        # 提取基础命令
+        base_cmd = self._extract_base_command(command)
+
+        # 构造 --help 命令
+        help_command = f"{base_cmd} --help"
+
+        self.logger.info(f"  使用 --help 验证选项: {option_name}")
+        self.logger.info(f"  执行命令: {help_command}")
+
+        exit_code, output, error = self.execute_command(client_new, help_command)
+
+        # 组合输出和错误信息（有些命令的help在stderr中）
+        full_output = (output + '\n' + error).lower()
+
+        if exit_code != 0 and not output:
+            return '失败', f'执行 {help_command} 失败: {error}'
+
+        # 检查输出中是否包含选项名
+        if option_name.lower() in full_output:
+            return '通过', f'选项 {option_name} 存在于 --help 输出中 ✓'
+        else:
+            return '失败', f'选项 {option_name} 不存在于 --help 输出中\n输出: {output[:200]}...'
+
     def _detect_modification_type(self, description, impact):
         """
         根据影响说明和描述检测修改类型
