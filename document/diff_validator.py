@@ -738,6 +738,166 @@ class SSHValidator:
         self.logger.info(f"[新增] {file_path} - {result['verified']}")
         return result
 
+    def _detect_modification_type(self, description, impact):
+        """
+        根据影响说明和描述检测修改类型
+
+        Args:
+            description: 描述文本
+            impact: 影响说明
+
+        Returns:
+            修改类型列表
+        """
+        modification_types = []
+
+        # 合并影响说明和描述进行分析
+        text = f"{impact} {description}".lower()
+
+        # 检测各种修改类型
+        if any(keyword in text for keyword in ['权限', 'permission', 'chmod', '访问权']):
+            modification_types.append('permission')
+
+        if any(keyword in text for keyword in ['所有者', 'owner', 'chown', '属主']):
+            modification_types.append('owner')
+
+        if any(keyword in text for keyword in ['参数', '选项', 'option', 'argument']):
+            modification_types.append('parameter')
+
+        if any(keyword in text for keyword in ['内容', 'content', '配置', 'config', '值', 'value']):
+            modification_types.append('content')
+
+        if any(keyword in text for keyword in ['大小', 'size', '长度', 'length']):
+            modification_types.append('size')
+
+        # 重命名检测：需要更明确的上下文
+        # 只有在明确提到文件/接口名称的变化时才认为是rename
+        # 如 "app.cfg 改为 app.conf" 或 "A -> B"
+        rename_patterns = [
+            r'重命名',
+            r'\.\w+\s+改为\s+\.\w+',  # file.ext 改为 other.ext
+            r'/[\w\-/.]+\s*->\s*/[\w\-/.]+',  # /path/old -> /path/new
+        ]
+        import re
+        full_text = f"{impact} {description}"
+        for pattern in rename_patterns:
+            if re.search(pattern, full_text):
+                modification_types.append('rename')
+                break
+
+        return modification_types
+
+    def validate_file_attributes(self, file_path, client_old, client_new, result):
+        """
+        验证文件属性修改（权限、所有者等）
+
+        Args:
+            file_path: 文件路径
+            client_old: 旧环境SSH客户端
+            client_new: 新环境SSH客户端
+            result: 结果字典
+
+        Returns:
+            验证结果字典
+        """
+        self.logger.info(f"  验证文件属性: {file_path}")
+
+        # 获取旧环境的文件属性
+        exit_code_old, old_output, old_err = self.execute_command(client_old, f"ls -ld '{file_path}'")
+
+        # 获取新环境的文件属性
+        exit_code_new, new_output, new_err = self.execute_command(client_new, f"ls -ld '{file_path}'")
+
+        if exit_code_old != 0 or exit_code_new != 0:
+            result['verified'] = '失败'
+            result['remark'] = f'无法获取文件属性'
+            return result
+
+        # 对比属性
+        if old_output == new_output:
+            result['verified'] = '警告'
+            result['remark'] = f'文件属性未发生变化\n{old_output}'
+        else:
+            result['verified'] = '通过'
+            result['remark'] = f'文件属性已变化 ✓\n旧环境: {old_output}\n新环境: {new_output}'
+
+        return result
+
+    def validate_parameter_change(self, command, description, client_new, result):
+        """
+        验证命令参数/选项变化
+
+        Args:
+            command: 命令路径
+            description: 描述文本
+            client_new: 新环境SSH客户端
+            result: 结果字典
+
+        Returns:
+            验证结果字典
+        """
+        # 检查是否是参数变化
+        # 使用 --help 验证
+        needs_help, option_name = self._is_help_verification_needed(description)
+
+        if needs_help and option_name:
+            self.logger.info(f"  验证命令参数变化: {command}")
+            verified, remark = self.validate_command_with_help(command, option_name, client_new)
+            result['verified'] = verified
+            result['remark'] = remark
+            return result
+
+        # 对比命令的 --help 输出
+        self.logger.info(f"  对比命令帮助信息: {command}")
+        base_cmd = self._extract_base_command(command)
+        help_command = f"{base_cmd} --help"
+
+        exit_code, output, error = self.execute_command(client_new, help_command)
+
+        if exit_code == 0:
+            result['verified'] = '部分验证'
+            result['remark'] = f'命令帮助信息已获取（建议人工确认参数变化）\n{output[:200]}...'
+        else:
+            result['verified'] = '失败'
+            result['remark'] = f'无法获取命令帮助信息'
+
+        return result
+
+    def validate_content_change(self, file_path, client_old, client_new, result):
+        """
+        验证文件内容变化
+
+        Args:
+            file_path: 文件路径
+            client_old: 旧环境SSH客户端
+            client_new: 新环境SSH客户端
+            result: 结果字典
+
+        Returns:
+            验证结果字典
+        """
+        self.logger.info(f"  验证文件内容变化: {file_path}")
+
+        # 使用 diff 命令对比内容
+        diff_command = f"diff '{file_path}' <(ssh {self.env_old.get('host', 'OLD_HOST')} cat '{file_path}') 2>&1 | head -50"
+
+        # 简化版本：直接对比文件大小和md5
+        exit_code_old, old_output, _ = self.execute_command(client_old, f"wc -l '{file_path}'")
+        exit_code_new, new_output, _ = self.execute_command(client_new, f"wc -l '{file_path}'")
+
+        if exit_code_old == 0 and exit_code_new == 0:
+            if old_output == new_output:
+                result['verified'] = '警告'
+                result['remark'] = f'文件行数未变化: {old_output}'
+            else:
+                result['verified'] = '通过'
+                result['remark'] = f'文件内容已变化 ✓\n旧环境行数: {old_output}\n新环境行数: {new_output}'
+        else:
+            result['verified'] = '失败'
+            result['remark'] = f'无法对比文件内容'
+
+        return result
+
     def validate_modification(self, file_path, client_old, client_new, result):
         """验证修改项"""
         # 检查两个环境文件是否存在
@@ -749,9 +909,40 @@ class SSHValidator:
             result['remark'] = f'新环境不存在该文件'
             return result
 
-        # 可以添加更多的验证逻辑，比如比较文件大小、修改时间、内容等
+        # 检测修改类型
+        modification_types = self._detect_modification_type(
+            result.get('description', ''),
+            result.get('impact', '')
+        )
+
+        self.logger.info(f"  检测到修改类型: {modification_types}")
+
+        # 根据修改类型执行不同的验证
+        if 'permission' in modification_types or 'owner' in modification_types:
+            # 文件属性修改
+            return self.validate_file_attributes(file_path, client_old, client_new, result)
+
+        elif 'parameter' in modification_types:
+            # 参数/选项修改
+            return self.validate_parameter_change(file_path, result.get('description', ''), client_new, result)
+
+        elif 'content' in modification_types:
+            # 内容修改
+            return self.validate_content_change(file_path, client_old, client_new, result)
+
+        elif 'rename' in modification_types:
+            # 重命名（需要提取新旧路径）
+            old_path, new_path = self.extract_replacement_info(
+                result.get('description', ''),
+                result.get('item_name', '')
+            )
+            if old_path and new_path:
+                return self.validate_replacement(old_path, new_path, client_new, result)
+
+        # 默认：基础验证
+        self.logger.info(f"  使用默认验证方式")
         result['verified'] = '部分验证'
-        result['remark'] = f'新环境文件存在（建议人工确认内容变更）'
+        result['remark'] = f'新环境文件存在（建议人工确认变更）'
 
         self.logger.info(f"[修改] {file_path} - {result['verified']}")
         return result
