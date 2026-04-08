@@ -953,6 +953,133 @@ class SSHValidator:
 
         return result
 
+    def _extract_config_changes(self, description, impact):
+        """
+        从描述中提取具体的配置变更
+
+        Args:
+            description: 描述文本
+            impact: 影响说明
+
+        Returns:
+            配置变更列表，格式: [(配置项名, 旧值, 新值), ...]
+        """
+        config_changes = []
+        text = f"{impact} {description}"
+
+        # 匹配模式：配置项 从值1 改为/变成/变为 值2
+        patterns = [
+            r'(\w+)\s*[从由]\s*([\w\-:.]+)\s*[改为成变]\s*([\w\-:.]+)',
+            r'(\w+)[:=]\s*([\w\-:.]+)\s*[-→>]+\s*([\w\-:.]+)',
+            r'(\w+)\s*默认值?\s*[从由]\s*([\w\-:.]+)\s*改为\s*([\w\-:.]+)',
+            r'新增\s*(\w+)[：:]\s*([\w\-:.]+)',  # 新增字段：字段名: 默认值
+            r'删除\s*(\w+)[：:]\s*([\w\-:.]+)',  # 删除字段：字段名: 值
+            r'增加\s*(\w+)[：:]\s*([\w\-:.]+)',  # 增加字段：字段名: 值
+        ]
+
+        import re
+        for pattern in patterns:
+            matches = re.findall(pattern, text)
+            for match in matches:
+                if len(match) == 3:
+                    config_changes.append((match[0], match[1], match[2]))
+                elif len(match) == 2 and any(kw in text for kw in ['新增', '增加', '添加']):
+                    # 新增字段的情况
+                    config_changes.append(('new_field', match[0], match[1]))
+
+        return config_changes
+
+    def validate_config_item(self, file_path, config_item, old_value, new_value, client_old, client_new):
+        """
+        验证具体的配置项变更
+
+        Args:
+            file_path: 文件路径
+            config_item: 配置项名称
+            old_value: 旧值
+            new_value: 新值
+            client_old: 旧环境SSH客户端
+            client_new: 新环境SSH客户端
+
+        Returns:
+            (验证状态, 备注)
+        """
+        self.logger.info(f"    精细验证配置项: {config_item}")
+
+        # 提取配置项的值
+        # 尝试使用 grep 提取配置行
+        # 支持多种配置格式：key=value, key : value, key value 等
+
+        # 从旧环境提取
+        grep_pattern = f"^[[:space:]]*{re.escape(config_item)}[[:space:]]*[:=]"
+        exit_old, old_output, _ = self.execute_command(
+            client_old,
+            f"grep '{grep_pattern}' '{file_path}' 2>/dev/null | head -1"
+        )
+
+        # 从新环境提取
+        exit_new, new_output, _ = self.execute_command(
+            client_new,
+            f"grep '{grep_pattern}' '{file_path}' 2>/dev/null | head -1"
+        )
+
+        # 提取值（简化版：取等号或冒号后的部分）
+        def extract_value(line):
+            # 尝试匹配 key=value, key : value, key value 等格式
+            for sep in ['=', ':', ' ']:
+                if sep in line:
+                    parts = line.split(sep, 1)
+                    if len(parts) == 2:
+                        return parts[1].strip().strip('"\'')
+            return line.strip().strip('"\'')
+
+        old_actual_value = extract_value(old_output) if exit_old == 0 else None
+        new_actual_value = extract_value(new_output) if exit_new == 0 else None
+
+        if old_actual_value is None and new_actual_value is None:
+            return '失败', f'无法找到配置项 {config_item}'
+
+        # 对比值
+        if new_actual_value == new_value:
+            # 检查旧值是否匹配
+            if old_actual_value == old_value:
+                return '通过', f'配置项 {config_item} 已变更 ✓\n旧值: {old_actual_value} → 新值: {new_actual_value}'
+            else:
+                return '通过', f'配置项 {config_item} 已变更 ✓\n期望旧值: {old_value}, 实际旧值: {old_actual_value}\n新值: {new_actual_value}'
+        elif new_actual_value:
+            return '失败', f'配置项 {config_item} 值不匹配\n期望新值: {new_value}, 实际新值: {new_actual_value}'
+        else:
+            return '失败', f'配置项 {config_item} 未找到或无法解析'
+
+    def validate_field_exists(self, file_path, field_name, client_new):
+        """
+        验证新增字段是否存在
+
+        Args:
+            file_path: 文件路径
+            field_name: 字段名称
+            client_new: 新环境SSH客户端
+
+        Returns:
+            (验证状态, 备注)
+        """
+        self.logger.info(f"    检查新增字段: {field_name}")
+
+        # 检查字段名是否在文件中存在
+        exit_code, output, _ = self.execute_command(
+            client_new,
+            f"grep -c '{re.escape(field_name)}' '{file_path}' 2>/dev/null"
+        )
+
+        if exit_code == 0:
+            count = output.strip()
+            if count and int(count) > 0:
+                return '通过', f'新增字段 {field_name} 存在 ✓（出现 {count} 次）'
+            else:
+                return '失败', f'新增字段 {field_name} 不存在'
+        else:
+            return '失败', f'无法检查字段 {field_name}'
+
     def validate_content_change(self, file_path, client_old, client_new, result):
         """
         验证文件内容变化
@@ -968,31 +1095,69 @@ class SSHValidator:
         """
         self.logger.info(f"  验证文件内容变化: {file_path}")
 
-        # 方法1: 使用 md5sum 对比文件内容（最准确）
+        # 步骤1: 尝试从描述中提取具体的配置变更
+        description = result.get('description', '')
+        impact = result.get('impact', '')
+        config_changes = self._extract_config_changes(description, impact)
+
+        # 检查是否有新增字段的情况
+        has_new_field = any(change[0] == 'new_field' for change in config_changes)
+
+        if has_new_field:
+            # 新增字段的情况：只验证字段是否存在
+            self.logger.info(f"  检测到新增字段变更")
+            all_pass = True
+            remarks = []
+
+            for change_type, field_name, expected_value in config_changes:
+                if change_type == 'new_field':
+                    verified, remark = self.validate_field_exists(file_path, field_name, client_new)
+                    remarks.append(f"{field_name}: {verified} - {remark}")
+                    if verified != '通过':
+                        all_pass = False
+
+            result['verified'] = '通过' if all_pass else '失败'
+            result['remark'] = '\n'.join(remarks)
+            return result
+
+        # 步骤2: 如果有具体的配置变更，进行精细验证
+        if config_changes and not has_new_field:
+            self.logger.info(f"  检测到 {len(config_changes)} 个具体配置变更，进行精细验证")
+            all_pass = True
+            remarks = []
+
+            for config_item, old_val, new_val in config_changes:
+                verified, remark = self.validate_config_item(
+                    file_path, config_item, old_val, new_val, client_old, client_new
+                )
+                remarks.append(f"{config_item}: {verified}")
+                if verified != '通过':
+                    all_pass = False
+
+            result['verified'] = '通过' if all_pass else '失败'
+            result['remark'] = '\n'.join(remarks)
+            return result
+
+        # 步骤3: 没有具体变更信息，只验证文件是否变化
+        self.logger.info(f"  无具体变更信息，验证文件是否有变化")
+
+        # 使用 md5sum 对比文件内容
         exit_code_old, old_md5, _ = self.execute_command(client_old, f"md5sum '{file_path}'")
         exit_code_new, new_md5, _ = self.execute_command(client_new, f"md5sum '{file_path}'")
 
-        # 提取 md5 值（格式: "md5值  文件名"）
         old_md5_value = old_md5.split()[0] if old_md5 and exit_code_old == 0 else None
         new_md5_value = new_md5.split()[0] if new_md5 and exit_code_new == 0 else None
 
         if old_md5_value and new_md5_value:
             if old_md5_value == new_md5_value:
-                # MD5 相同，检查行数和大小
-                exit_code_old, old_lines, _ = self.execute_command(client_old, f"wc -l '{file_path}'")
-                exit_code_new, new_lines, _ = self.execute_command(client_new, f"wc -l '{file_path}'")
-
-                old_line_count = old_lines.split()[0] if old_lines and exit_code_old == 0 else '?'
-                new_line_count = new_lines.split()[0] if new_lines and exit_code_new == 0 else '?'
-
                 result['verified'] = '警告'
-                result['remark'] = f'文件内容未发生变化（MD5相同）\nMD5: {old_md5_value}\n行数: {old_line_count}'
+                result['remark'] = f'文件内容未发生变化（MD5相同）\nMD5: {old_md5_value}\n建议人工确认具体变更内容'
             else:
                 result['verified'] = '通过'
-                result['remark'] = f'文件内容已变化 ✓\n旧环境MD5: {old_md5_value}\n新环境MD5: {new_md5_value}'
+                result['remark'] = f'文件内容已变化 ✓\n旧环境MD5: {old_md5_value}\n新环境MD5: {new_md5_value}\n建议确认具体变更内容'
             return result
 
-        # 方法2: 如果 md5sum 不可用，使用 sha256sum
+        # 如果 md5sum 不可用，使用 sha256sum
         exit_code_old, old_sha, _ = self.execute_command(client_old, f"sha256sum '{file_path}'")
         exit_code_new, new_sha, _ = self.execute_command(client_new, f"sha256sum '{file_path}'")
 
@@ -1002,30 +1167,26 @@ class SSHValidator:
         if old_sha_value and new_sha_value:
             if old_sha_value == new_sha_value:
                 result['verified'] = '警告'
-                result['remark'] = f'文件内容未发生变化（SHA256相同）\nSHA256: {old_sha_value}'
+                result['remark'] = f'文件内容未发生变化（SHA256相同）\nSHA256: {old_sha_value}\n建议人工确认具体变更内容'
             else:
                 result['verified'] = '通过'
-                result['remark'] = f'文件内容已变化 ✓\n旧环境SHA256: {old_sha_value}\n新环境SHA256: {new_sha_value}'
+                result['remark'] = f'文件内容已变化 ✓\n旧环境SHA256: {old_sha_value}\n新环境SHA256: {new_sha_value}\n建议确认具体变更内容'
             return result
 
-        # 方法3: 对比文件大小和行数（最后手段）
+        # 最后手段：对比文件大小和行数
         exit_code_old, old_size, _ = self.execute_command(client_old, f"wc -c '{file_path}'")
         exit_code_new, new_size, _ = self.execute_command(client_new, f"wc -c '{file_path}'")
 
-        exit_code_old, old_lines, _ = self.execute_command(client_old, f"wc -l '{file_path}'")
-        exit_code_new, new_lines, _ = self.execute_command(client_new, f"wc -l '{file_path}'")
+        if exit_code_old == 0 and exit_code_new == 0:
+            old_size_val = old_size.split()[0]
+            new_size_val = new_size.split()[0]
 
-        old_size_value = old_size.split()[0] if old_size and exit_code_old == 0 else '?'
-        new_size_value = new_size.split()[0] if new_size and exit_code_new == 0 else '?'
-        old_line_count = old_lines.split()[0] if old_lines and exit_code_old == 0 else '?'
-        new_line_count = new_lines.split()[0] if new_lines and exit_code_new == 0 else '?'
-
-        if old_size_value == new_size_value and old_line_count == new_line_count:
-            result['verified'] = '警告'
-            result['remark'] = f'文件大小和行数未变化\n大小: {old_size_value} bytes, 行数: {old_line_count}'
-        elif old_size_value != new_size_value or old_line_count != new_line_count:
-            result['verified'] = '通过'
-            result['remark'] = f'文件大小或行数已变化 ✓\n旧环境: 大小={old_size_value}, 行数={old_line_count}\n新环境: 大小={new_size_value}, 行数={new_line_count}'
+            if old_size_val == new_size_val:
+                result['verified'] = '警告'
+                result['remark'] = f'文件大小未变化: {old_size_val} bytes\n建议人工确认具体变更内容'
+            else:
+                result['verified'] = '通过'
+                result['remark'] = f'文件大小已变化 ✓\n旧环境: {old_size_val} bytes\n新环境: {new_size_val} bytes'
         else:
             result['verified'] = '失败'
             result['remark'] = f'无法对比文件内容'
