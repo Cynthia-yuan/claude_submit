@@ -968,20 +968,64 @@ class SSHValidator:
         """
         self.logger.info(f"  验证文件内容变化: {file_path}")
 
-        # 使用 diff 命令对比内容
-        diff_command = f"diff '{file_path}' <(ssh {self.env_old.get('host', 'OLD_HOST')} cat '{file_path}') 2>&1 | head -50"
+        # 方法1: 使用 md5sum 对比文件内容（最准确）
+        exit_code_old, old_md5, _ = self.execute_command(client_old, f"md5sum '{file_path}'")
+        exit_code_new, new_md5, _ = self.execute_command(client_new, f"md5sum '{file_path}'")
 
-        # 简化版本：直接对比文件大小和md5
-        exit_code_old, old_output, _ = self.execute_command(client_old, f"wc -l '{file_path}'")
-        exit_code_new, new_output, _ = self.execute_command(client_new, f"wc -l '{file_path}'")
+        # 提取 md5 值（格式: "md5值  文件名"）
+        old_md5_value = old_md5.split()[0] if old_md5 and exit_code_old == 0 else None
+        new_md5_value = new_md5.split()[0] if new_md5 and exit_code_new == 0 else None
 
-        if exit_code_old == 0 and exit_code_new == 0:
-            if old_output == new_output:
+        if old_md5_value and new_md5_value:
+            if old_md5_value == new_md5_value:
+                # MD5 相同，检查行数和大小
+                exit_code_old, old_lines, _ = self.execute_command(client_old, f"wc -l '{file_path}'")
+                exit_code_new, new_lines, _ = self.execute_command(client_new, f"wc -l '{file_path}'")
+
+                old_line_count = old_lines.split()[0] if old_lines and exit_code_old == 0 else '?'
+                new_line_count = new_lines.split()[0] if new_lines and exit_code_new == 0 else '?'
+
                 result['verified'] = '警告'
-                result['remark'] = f'文件行数未变化: {old_output}'
+                result['remark'] = f'文件内容未发生变化（MD5相同）\nMD5: {old_md5_value}\n行数: {old_line_count}'
             else:
                 result['verified'] = '通过'
-                result['remark'] = f'文件内容已变化 ✓\n旧环境行数: {old_output}\n新环境行数: {new_output}'
+                result['remark'] = f'文件内容已变化 ✓\n旧环境MD5: {old_md5_value}\n新环境MD5: {new_md5_value}'
+            return result
+
+        # 方法2: 如果 md5sum 不可用，使用 sha256sum
+        exit_code_old, old_sha, _ = self.execute_command(client_old, f"sha256sum '{file_path}'")
+        exit_code_new, new_sha, _ = self.execute_command(client_new, f"sha256sum '{file_path}'")
+
+        old_sha_value = old_sha.split()[0] if old_sha and exit_code_old == 0 else None
+        new_sha_value = new_sha.split()[0] if new_sha and exit_code_new == 0 else None
+
+        if old_sha_value and new_sha_value:
+            if old_sha_value == new_sha_value:
+                result['verified'] = '警告'
+                result['remark'] = f'文件内容未发生变化（SHA256相同）\nSHA256: {old_sha_value}'
+            else:
+                result['verified'] = '通过'
+                result['remark'] = f'文件内容已变化 ✓\n旧环境SHA256: {old_sha_value}\n新环境SHA256: {new_sha_value}'
+            return result
+
+        # 方法3: 对比文件大小和行数（最后手段）
+        exit_code_old, old_size, _ = self.execute_command(client_old, f"wc -c '{file_path}'")
+        exit_code_new, new_size, _ = self.execute_command(client_new, f"wc -c '{file_path}'")
+
+        exit_code_old, old_lines, _ = self.execute_command(client_old, f"wc -l '{file_path}'")
+        exit_code_new, new_lines, _ = self.execute_command(client_new, f"wc -l '{file_path}'")
+
+        old_size_value = old_size.split()[0] if old_size and exit_code_old == 0 else '?'
+        new_size_value = new_size.split()[0] if new_size and exit_code_new == 0 else '?'
+        old_line_count = old_lines.split()[0] if old_lines and exit_code_old == 0 else '?'
+        new_line_count = new_lines.split()[0] if new_lines and exit_code_new == 0 else '?'
+
+        if old_size_value == new_size_value and old_line_count == new_line_count:
+            result['verified'] = '警告'
+            result['remark'] = f'文件大小和行数未变化\n大小: {old_size_value} bytes, 行数: {old_line_count}'
+        elif old_size_value != new_size_value or old_line_count != new_line_count:
+            result['verified'] = '通过'
+            result['remark'] = f'文件大小或行数已变化 ✓\n旧环境: 大小={old_size_value}, 行数={old_line_count}\n新环境: 大小={new_size_value}, 行数={new_line_count}'
         else:
             result['verified'] = '失败'
             result['remark'] = f'无法对比文件内容'
